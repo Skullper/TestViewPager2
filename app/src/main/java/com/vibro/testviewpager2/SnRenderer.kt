@@ -4,16 +4,17 @@ import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
-import android.os.Parcelable
+import android.os.*
 import android.util.Log
 import io.reactivex.Observable
 import io.reactivex.Single
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
+import io.reactivex.subjects.PublishSubject
 import kotlinx.android.parcel.Parcelize
 import java.io.File
+import java.util.*
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -21,125 +22,186 @@ import kotlin.math.roundToInt
  * Contains information about pdf page
  *
  * @param file which contains current page
- * @param filePageNumber concrete page number in [file]
- * @param renderedPageNumber index of the page displayed on the screen. This page number refers to the index in the list of pages of all documents
+ * @param pagePosition concrete page number in [file]
+ * @param pagePositionOfTotal index of the page displayed on the screen. This page number refers to the index in the list of pages of all documents
  * which are rendering at that point
  */
 @Parcelize
-data class PageInfo(val fileData: RenderedFileData, val filePageNumber: Int, val renderedPageNumber: Int, val quality: SnRenderer.RenderType = SnRenderer.RenderType.NORMAL) :
-    Parcelable
+data class PageInfo(
+    val pdfFileData: PdfFileData,
+    val pagePosition: Int,
+    val pagePositionOfTotal: Int,
+    val quality: SnRenderer.RenderType = SnRenderer.RenderType.NORMAL
+) : Parcelable
 
 @Parcelize
-data class RenderedFileData(val file: File, val pageCount: Int): Parcelable
+data class PdfFileData(val file: File, val pageCount: Int) : Parcelable
 
-data class RenderData(val pageInfo: PageInfo, val bitmap: Bitmap)
+data class RenderPageData(val pageInfo: PageInfo, val bitmap: Bitmap?)
 
-private const val CACHE_SIZE = 9
+sealed class Direction(val index: Int) {
+    class Backward(index: Int) : Direction(index)
+    class Forward(index: Int) : Direction(index)
+}
 
-class SnRenderer(private val files: List<File>) {
 
-    private lateinit var renderer: PdfRenderer
+private const val CACHE_SIZE = 7
+private const val CACHE_PAGES_SIDE_LIMIT = 2
+
+class SnRenderer {
+
+    private val TAG = this.javaClass.simpleName
+
+    private lateinit var pdfRenderer: PdfRenderer
+    private lateinit var currentFile: PdfFileData
+
     private val pages: MutableList<PageInfo> = mutableListOf()
-    var wholePagesCount: Int = 0
-    private val sparseArray: ArrayList<RenderData> = ArrayList(CACHE_SIZE)
-    private lateinit var currentFile: RenderedFileData
-    private val filesForRender: ArrayList<RenderedFileData> = arrayListOf()
+    private val cache: LinkedList<RenderPageData> = LinkedList()
+
+    private var prevIndex: Int = 0
 
     private val screenHeight = Resources.getSystem().displayMetrics.heightPixels
     private val screenWidth = Resources.getSystem().displayMetrics.widthPixels
 
-    fun getPages(): List<PageInfo> {
-        files.forEach { file ->
-            val parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            val pdfRenderer = PdfRenderer(parcelFileDescriptor)
-            val filePagesCount = pdfRenderer.pageCount
-            val fileData = RenderedFileData(file, filePagesCount)
-            filesForRender.add(fileData)
-            pdfRenderer.close()
-            val filePages = (0 until filePagesCount)
-            pages.addAll(filePages.map {
-                val info = PageInfo(fileData, it, wholePagesCount)
-                wholePagesCount += 1
-                info
-            })
+    private val renderingResultPublisher = PublishSubject.create<RenderPageData>()
+    private val renderingThread = HandlerThread("pdf_rendering").apply { this.start() }
+    private val renderingHandler = object : Handler(renderingThread.looper) {
+        override fun handleMessage(msg: Message) {
+//            Thread.sleep(1000)
+            val indexOfPageToRender = msg.what
+            val page = pages[indexOfPageToRender]
+            if (page.pdfFileData.file != currentFile.file) {
+                pdfRenderer.close()
+                initMainRenderer(page.pdfFileData)
+            }
+
+            val renderedPage = renderPage(pdfRenderer.openPage(page.pagePosition), page.quality)
+            val renderData = RenderPageData(page, renderedPage)
+
+            updatePageInCachePage(renderData)
+            renderingResultPublisher.onNext(renderData)
         }
+    }
+
+    private fun updatePageInCachePage(renderData: RenderPageData) {
+        Log.d(TAG, "find in cache ${renderData.pageInfo.pagePositionOfTotal}")
+        val i = cache.indexOfFirst { it.pageInfo.pagePositionOfTotal == renderData.pageInfo.pagePositionOfTotal }
+        if (i != -1) cache[i] = renderData
+    }
+
+    fun open(files: List<File>): List<PageInfo> {
+        initPages(files)
+        initCache()
         return pages
     }
 
-    fun startRendering(): Single<List<RenderData>> {
-        return if (currentFile.pageCount < CACHE_SIZE) {
-            Observable.fromIterable((1 until currentFile.pageCount))
-        } else {
-            Observable.fromIterable((1 until CACHE_SIZE))
+    private fun initPages(files: List<File>) {
+        var indexOfTotal = 0
+        files.forEach { file ->
+            val parcelFileDescriptor =
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val localRenderer = PdfRenderer(parcelFileDescriptor)
+            val filePagesCount = localRenderer.pageCount
+            localRenderer.close()
+            val fileData = PdfFileData(file, filePagesCount)
+            val filePages = (0 until filePagesCount)
+            filePages.forEach {
+                val info = PageInfo(fileData, it, indexOfTotal++)
+                pages.add(info)
+            }
+            if (!::currentFile.isInitialized && !::pdfRenderer.isInitialized) initMainRenderer(fileData)
         }
-                .flatMap { pageNumber -> renderPage(PageInfo(currentFile, pageNumber, pageNumber)) }
-                .toList()
     }
 
-    private var prevIndex: Int = 0
+    private fun initMainRenderer(fileData: PdfFileData) {
+        currentFile = fileData
+        val parcelFileDescriptor =
+            ParcelFileDescriptor.open(currentFile.file, ParcelFileDescriptor.MODE_READ_ONLY)
+        pdfRenderer = PdfRenderer(parcelFileDescriptor)
+    }
 
-    fun getPage(pageInfo: PageInfo): Observable<RenderData> {
-        return if (!::renderer.isInitialized) {
-            currentFile = filesForRender[0]
-            val parcelFileDescriptor = ParcelFileDescriptor.open(currentFile.file, ParcelFileDescriptor.MODE_READ_ONLY)
-            renderer = PdfRenderer(parcelFileDescriptor)
-            startRendering().compose(applySchedulersSingle()).subscribeAndDispose()
-            renderPage(pageInfo)
-//        } else if (sparseArray.get(pageInfo.filePageNumber) == null) {
-//            renderPage(pageInfo)
+    private fun initCache() {
+        val pages = if (currentFile.pageCount < CACHE_SIZE) {
+            (0 until currentFile.pageCount)
         } else {
-            val currentPosition = sparseArray.indexOfFirst { pageInfo.renderedPageNumber == it.pageInfo.renderedPageNumber }
-            if (pageInfo.renderedPageNumber > prevIndex) { //forward
-                if (currentPosition > 5) {
-                    val nextPagePosition = pages.indexOf(pageInfo) + 3
-                    renderPage(pages[nextPagePosition]).compose(applySchedulersObservable()).subscribeAndDispose({
-//                        sparseArray[0].bitmap.recycle()
-                        sparseArray.removeAt(0)
-                    })
+            (0 until CACHE_SIZE)
+        }
+        pages.forEach { renderToCache(Direction.Forward(it)) }
+    }
+
+    fun close() {
+        renderingThread.quitSafely()
+    }
+
+    fun getPage(position: Int): Observable<RenderPageData> {
+        Log.d(TAG, "get page $position")
+        val pageToRender = pages[position]
+
+        val cachedPage =
+            cache.firstOrNull { it.pageInfo.pagePositionOfTotal == pageToRender.pagePositionOfTotal }
+        val pageToReturn = if (cachedPage?.bitmap != null) {
+            Observable.just(cachedPage)
+        } else {
+            renderingResultPublisher.filter { it.pageInfo.pagePositionOfTotal == position }
+        }
+
+        renderNextPage(pageToRender)
+        prevIndex = pageToRender.pagePositionOfTotal
+        return pageToReturn
+    }
+
+    private fun renderNextPage(pageToRender: PageInfo) {
+        if (pageToRender.pagePositionOfTotal > prevIndex) {
+            //going forward
+            val lastPageNumberInCache = cache.last.pageInfo.pagePositionOfTotal
+            if (lastPageNumberInCache != pages.size) {
+                if (lastPageNumberInCache - pageToRender.pagePositionOfTotal <= CACHE_PAGES_SIDE_LIMIT) {
+                    val nextIndexToRender = lastPageNumberInCache + 1
+                    renderToCache(Direction.Forward(nextIndexToRender))
                 }
-                prevIndex = pageInfo.renderedPageNumber
-                Observable.just(sparseArray[if (currentPosition < 0) 0 else currentPosition])
-            } else { //backwards
-                if (currentPosition < 5) {
-                    val nextPagePosition = pages.indexOf(pageInfo) - 3
-                    if (nextPagePosition >= 0) {
-                        renderPage(pages[nextPagePosition], false).compose(applySchedulersObservable()).subscribeAndDispose({
-                            val lastIndex = sparseArray.size - 1
-//                            sparseArray[lastIndex].bitmap.recycle()
-                            sparseArray.removeAt(lastIndex)
-                        })
-                    }
+            }
+        } else {
+            //going back
+            val firstNumberInCache = cache.first.pageInfo.pagePositionOfTotal
+            if (firstNumberInCache != 0) {
+                if (pageToRender.pagePositionOfTotal - firstNumberInCache <= CACHE_PAGES_SIDE_LIMIT) {
+                    val nextIndexToRender = firstNumberInCache - 1
+                    renderToCache(Direction.Backward(nextIndexToRender))
                 }
-                prevIndex = pageInfo.renderedPageNumber
-                Observable.just(sparseArray[if (currentPosition < 0) 0 else currentPosition])
             }
         }
     }
 
-    fun renderPagePreview(index: Int) {
-        // TODO(26.03.2020) Add render page preview
+    private fun renderToCache(direction: Direction) {
+        //write cache stub
+        val pageToRender = pages[direction.index]
+        when (direction) {
+            is Direction.Backward -> {
+                cache.addFirst(RenderPageData(pageToRender, null))
+                if (cache.size > CACHE_SIZE) clearCachedPage(cache.removeLast())
+                Log.d(TAG, "page ${direction.index} added in front of cache")
+            }
+            is Direction.Forward -> {
+                cache.addLast(RenderPageData(pageToRender, null))
+                if (cache.size > CACHE_SIZE) clearCachedPage(cache.removeFirst())
+                Log.d(TAG, "page ${direction.index} added in the end of cache")
+            }
+        }
+
+        cache.forEach { Log.d(TAG, "cache state - ${it.pageInfo.pagePositionOfTotal}") }
+        renderingHandler.sendEmptyMessage(pageToRender.pagePositionOfTotal)
     }
 
-    private fun renderPage(page: PageInfo, tail: Boolean = true): Observable<RenderData> {
-        return Observable.just(page)
-                .map {
-                    if (page.fileData.file != currentFile.file) {
-                        renderer.close()
-                        currentFile = page.fileData
-                        val parcelFileDescriptor = ParcelFileDescriptor.open(currentFile.file, ParcelFileDescriptor.MODE_READ_ONLY)
-                        renderer = PdfRenderer(parcelFileDescriptor)
-                    }
-                    it
-                }
-                .map { renderPage(renderer.openPage(it.filePageNumber), it.quality) }
-                .map { bitmap ->
-                    val data = RenderData(page, bitmap)
-                    if (tail) sparseArray.add(data) else sparseArray.add(0, data)
-                    data
-                }
+    private fun clearCachedPage(cachedPage: RenderPageData) {
+        cachedPage.bitmap?.recycle()
     }
 
-    private fun renderPage(currentPage: PdfRenderer.Page, renderType: RenderType, transformMatrix: Matrix? = null): Bitmap {
+
+    private fun renderPage(
+        currentPage: PdfRenderer.Page,
+        renderType: RenderType,
+        transformMatrix: Matrix? = null
+    ): Bitmap {
         val pageSize = calculatePageSize(currentPage, renderType.scaleFactor)
         val bitmap = Bitmap.createBitmap(pageSize.first, pageSize.second, Bitmap.Config.ARGB_8888)
         currentPage.render(bitmap, null, transformMatrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -175,13 +237,12 @@ class SnRenderer(private val files: List<File>) {
         return Pair(pageWidth, pageHeight)
     }
 
-    data class PageForRender(val index: Int, val renderType: RenderType)
-
     enum class RenderType(val scaleFactor: Float) {
         NORMAL(1F),
         PREVIEW(0.2F),
         PREVIEW_LOW(0.1F)
     }
+
 }
 
 fun <T> applySchedulersObservable(): (Observable<T>) -> Observable<T> {
@@ -200,8 +261,9 @@ fun <T> applySchedulersSingle(): (Single<T>) -> Single<T> {
 
 fun <T> Observable<T>.subscribeAndDispose(
     onNext: (T) -> Unit = {},
-    onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage?:t.toString()) },
-    onComplete: () -> Unit = {}): Disposable {
+    onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) },
+    onComplete: () -> Unit = {}
+): Disposable {
     var d: Disposable? = null
     d = this.doFinally {
         d?.dispose()
@@ -212,7 +274,8 @@ fun <T> Observable<T>.subscribeAndDispose(
 
 fun <T> Single<T>.subscribeAndDispose(
     onNext: (T) -> Unit = {},
-    onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage?:t.toString()) }): Disposable {
+    onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) }
+): Disposable {
     var d: Disposable? = null
     d = this.doFinally { d?.dispose() }
         .subscribe(onNext, onError)

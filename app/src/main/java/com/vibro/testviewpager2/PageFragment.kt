@@ -9,23 +9,30 @@ import androidx.fragment.app.Fragment
 import kotlinx.android.synthetic.main.fragment_page.*
 import org.koin.android.ext.android.inject
 
-class PageFragment: Fragment() {
+class PageFragment : Fragment() {
 
     private val renderer: SnRenderer by inject()
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
         return inflater.inflate(R.layout.fragment_page, container)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val pageInfo = arguments?.getParcelable<PageInfo>("PAGE_NUMBER")
-        renderer.getPage(pageInfo!!)
-                .compose(applySchedulersObservable())
-                .subscribeAndDispose(
-                        { bitmap -> iv_page_fragment?.setImageBitmap(bitmap.bitmap) },
-                        { error -> Log.e("TAGA", "Error: ${error.message}") }
-                )
+        val pageIndex = arguments?.getInt(ARG_PAGE_INDEX) ?: 0
+        renderer.getPage(pageIndex)
+            .compose(applySchedulersObservable())
+            .subscribeAndDispose(
+                { bitmap ->
+                    iv_page_fragment?.setImageBitmap(bitmap.bitmap)
+                    progressBar?.visibility = View.GONE
+                },
+                { error -> Log.e("TAGA", "Error: ${error.message}") }
+            )
 //        renderer.also {
 //            val previewRenderPage = PdfPageProvider.PageToRender(pageIndex, PdfPageProvider.RenderType.PREVIEW)
 ////            val previewCallback: ((Bitmap?) -> Unit)? = { bitmap: Bitmap? ->
@@ -45,10 +52,13 @@ class PageFragment: Fragment() {
     }
 
     companion object {
-        fun newInstance(pageInfo: PageInfo): PageFragment {
+
+        const val ARG_PAGE_INDEX = "PAGE_INDEX"
+
+        fun newInstance(index: Int): PageFragment {
             return PageFragment().apply {
                 arguments = Bundle().apply {
-                    putParcelable("PAGE_NUMBER", pageInfo)
+                    putInt(ARG_PAGE_INDEX, index)
                 }
             }
         }

@@ -14,4 +14,10 @@
         tools:src="@mipmap/ic_launcher"
         tools:ignore="ContentDescription" />
 
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
 </FrameLayout>

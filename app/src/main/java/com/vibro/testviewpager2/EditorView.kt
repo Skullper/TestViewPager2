@@ -11,6 +11,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import androidx.viewpager2.widget.MarginPageTransformer
 import io.reactivex.Observable
+import io.reactivex.android.schedulers.AndroidSchedulers
 import kotlinx.android.synthetic.main.view_editor.view.*
 import org.koin.core.KoinComponent
 import org.koin.core.get
@@ -32,11 +33,18 @@ class EditorView : FrameLayout, KoinComponent {
         initView(context, attrs)
     }
 
-    constructor(context: Context, attrs: AttributeSet?, @AttrRes defStyleAttr: Int) : super(context, attrs, defStyleAttr) {
+    constructor(context: Context, attrs: AttributeSet?, @AttrRes defStyleAttr: Int) : super(
+        context,
+        attrs,
+        defStyleAttr
+    ) {
         initView(context, attrs, defStyleAttr)
     }
 
-    constructor(context: Context, attrs: AttributeSet?, @AttrRes defStyleAttr: Int, @StyleRes defStyleRes: Int) : super(context, attrs, defStyleAttr, defStyleRes) {
+    constructor(
+        context: Context,
+        attrs: AttributeSet?, @AttrRes defStyleAttr: Int, @StyleRes defStyleRes: Int
+    ) : super(context, attrs, defStyleAttr, defStyleRes) {
         initView(context, attrs, defStyleAttr)
     }
 
@@ -44,34 +52,43 @@ class EditorView : FrameLayout, KoinComponent {
         if (files.isEmpty()) throw IllegalArgumentException("List with files is empty")
 
         return Observable.just(files)
-                .map {
-                    renderer = SnRenderer(it)
-                    get<SnRendererWrapper> { parametersOf(renderer) }
-                    pages.addAll(renderer.getPages())
-                    Unit
-                }
-                .doFinally {
-                    val adapter = PageAdapter(fragmentActivity, pages)
-                    viewPager.adapter = adapter
-                }
+            .map {
+                renderer = SnRenderer()
+                get<SnRendererWrapper> { parametersOf(renderer) }
+                pages.addAll(renderer.open(it))
+                Unit
+            }
+            .observeOn(AndroidSchedulers.mainThread())
+            .doFinally {
+                val adapter = PageAdapter(fragmentActivity, pages)
+                viewPager.adapter = adapter
+            }
+    }
+
+    fun close() {
+        renderer.close()
     }
 
     fun getCurrentPage(): PageInfo {
         return pages[viewPager.currentItem]
     }
 
-    private fun initView(context: Context, attrs: AttributeSet? = null, @AttrRes defStyleAttr: Int = 0, @StyleRes defStyleRes: Int = 0) {
+    private fun initView(
+        context: Context,
+        attrs: AttributeSet? = null, @AttrRes defStyleAttr: Int = 0, @StyleRes defStyleRes: Int = 0
+    ) {
         View.inflate(context, R.layout.view_editor, this)
         viewPager?.setPageTransformer(MarginPageTransformer(50))
     }
 }
 
-class PageAdapter(fragmentActivity: FragmentActivity, private val pages: List<PageInfo>) : FragmentStateAdapter(fragmentActivity) {
+class PageAdapter(fragmentActivity: FragmentActivity, private val pages: List<PageInfo>) :
+    FragmentStateAdapter(fragmentActivity) {
 
     override fun getItemCount(): Int = pages.size
 
     override fun createFragment(position: Int): Fragment {
-        return PageFragment.newInstance(pages[position])
+        return PageFragment.newInstance(position)
     }
 
 }

@@ -17,17 +17,17 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         val files = listOf(
-            getPdf(this, "a.pdf"),
             getPdf(this, "b.pdf"),
-            getPdf(this, "a.pdf"),
-            getPdf(this, "b.pdf"),
-            getPdf(this, "a.pdf"),
             getPdf(this, "b.pdf")
         )
         editorView.show(files, this)
             .compose(applySchedulersObservable())
-            .doFinally { "Need to not crash" }
             .subscribeAndDispose()
+    }
+
+    override fun onDestroy() {
+        editorView.close()
+        super.onDestroy()
     }
 
     fun getPdf(context: Context, filenameInAssets: String): File {
