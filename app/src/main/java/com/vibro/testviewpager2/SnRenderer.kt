@@ -22,15 +22,15 @@ import kotlin.math.roundToInt
  * Contains information about pdf page
  *
  * @param file which contains current page
- * @param pagePosition concrete page number in [file]
- * @param pagePositionOfTotal index of the page displayed on the screen. This page number refers to the index in the list of pages of all documents
+ * @param pageIndex concrete page number in [file]
+ * @param pageIndexOfTotal index of the page displayed on the screen. This page number refers to the index in the list of pages of all documents
  * which are rendering at that point
  */
 @Parcelize
 data class PageInfo(
     val pdfFileData: PdfFileData,
-    val pagePosition: Int,
-    val pagePositionOfTotal: Int,
+    val pageIndex: Int,
+    val pageIndexOfTotal: Int,
     val quality: SnRenderer.RenderType = SnRenderer.RenderType.NORMAL
 ) : Parcelable
 
@@ -75,7 +75,7 @@ class SnRenderer {
                 initMainRenderer(page.pdfFileData)
             }
 
-            val renderedPage = renderPage(pdfRenderer.openPage(page.pagePosition), page.quality)
+            val renderedPage = renderPage(pdfRenderer.openPage(page.pageIndex), page.quality)
             val renderData = RenderPageData(page, renderedPage)
 
             updatePageInCachePage(renderData)
@@ -84,8 +84,8 @@ class SnRenderer {
     }
 
     private fun updatePageInCachePage(renderData: RenderPageData) {
-        Log.d(TAG, "find in cache ${renderData.pageInfo.pagePositionOfTotal}")
-        val i = cache.indexOfFirst { it.pageInfo.pagePositionOfTotal == renderData.pageInfo.pagePositionOfTotal }
+        Log.d(TAG, "find in cache ${renderData.pageInfo.pageIndexOfTotal}")
+        val i = cache.indexOfFirst { it.pageInfo.pageIndexOfTotal == renderData.pageInfo.pageIndexOfTotal }
         if (i != -1) cache[i] = renderData
     }
 
@@ -138,33 +138,33 @@ class SnRenderer {
         val pageToRender = pages[position]
 
         val cachedPage =
-            cache.firstOrNull { it.pageInfo.pagePositionOfTotal == pageToRender.pagePositionOfTotal }
+            cache.firstOrNull { it.pageInfo.pageIndexOfTotal == pageToRender.pageIndexOfTotal }
         val pageToReturn = if (cachedPage?.bitmap != null) {
             Observable.just(cachedPage)
         } else {
-            renderingResultPublisher.filter { it.pageInfo.pagePositionOfTotal == position }
+            renderingResultPublisher.filter { it.pageInfo.pageIndexOfTotal == position }
         }
 
         renderNextPage(pageToRender)
-        prevIndex = pageToRender.pagePositionOfTotal
+        prevIndex = pageToRender.pageIndexOfTotal
         return pageToReturn
     }
 
     private fun renderNextPage(pageToRender: PageInfo) {
-        if (pageToRender.pagePositionOfTotal > prevIndex) {
+        if (pageToRender.pageIndexOfTotal > prevIndex) {
             //going forward
-            val lastPageNumberInCache = cache.last.pageInfo.pagePositionOfTotal
-            if (lastPageNumberInCache != pages.size) {
-                if (lastPageNumberInCache - pageToRender.pagePositionOfTotal <= CACHE_PAGES_SIDE_LIMIT) {
+            val lastPageNumberInCache = cache.last.pageInfo.pageIndexOfTotal
+            if (lastPageNumberInCache != pages.lastIndex) {
+                if (lastPageNumberInCache - pageToRender.pageIndexOfTotal <= CACHE_PAGES_SIDE_LIMIT) {
                     val nextIndexToRender = lastPageNumberInCache + 1
                     renderToCache(Direction.Forward(nextIndexToRender))
                 }
             }
         } else {
             //going back
-            val firstNumberInCache = cache.first.pageInfo.pagePositionOfTotal
+            val firstNumberInCache = cache.first.pageInfo.pageIndexOfTotal
             if (firstNumberInCache != 0) {
-                if (pageToRender.pagePositionOfTotal - firstNumberInCache <= CACHE_PAGES_SIDE_LIMIT) {
+                if (pageToRender.pageIndexOfTotal - firstNumberInCache <= CACHE_PAGES_SIDE_LIMIT) {
                     val nextIndexToRender = firstNumberInCache - 1
                     renderToCache(Direction.Backward(nextIndexToRender))
                 }
@@ -188,8 +188,8 @@ class SnRenderer {
             }
         }
 
-        cache.forEach { Log.d(TAG, "cache state - ${it.pageInfo.pagePositionOfTotal}") }
-        renderingHandler.sendEmptyMessage(pageToRender.pagePositionOfTotal)
+        cache.forEach { Log.d(TAG, "cache state - ${it.pageInfo.pageIndexOfTotal}") }
+        renderingHandler.sendEmptyMessage(pageToRender.pageIndexOfTotal)
     }
 
     private fun clearCachedPage(cachedPage: RenderPageData) {
