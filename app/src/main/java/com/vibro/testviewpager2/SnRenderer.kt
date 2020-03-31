@@ -14,7 +14,6 @@ import io.reactivex.schedulers.Schedulers
 import io.reactivex.subjects.PublishSubject
 import kotlinx.android.parcel.Parcelize
 import java.io.File
-import java.util.*
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -30,23 +29,14 @@ import kotlin.math.roundToInt
 data class PageInfo(
     val pdfFileData: PdfFileData,
     val pageIndex: Int,
-    val pageIndexOfTotal: Int,
-    val quality: SnRenderer.RenderType = SnRenderer.RenderType.NORMAL
-) : Parcelable
+    val pageIndexOfTotal: Int) : Parcelable
 
 @Parcelize
 data class PdfFileData(val file: File, val pageCount: Int) : Parcelable
 
-data class RenderPageData(val pageInfo: PageInfo, val bitmap: Bitmap?)
+data class PageToRender(val pageInfo: PageInfo, val quality: SnRenderer.Quality = SnRenderer.Quality.Normal)
 
-sealed class Direction(val index: Int) {
-    class Backward(index: Int) : Direction(index)
-    class Forward(index: Int) : Direction(index)
-}
-
-
-private const val CACHE_SIZE = 7
-private const val CACHE_PAGES_SIDE_LIMIT = 2
+data class RenderedPageData(val pageInfo: PageInfo, val quality: SnRenderer.Quality?, val bitmap: Bitmap? = null)
 
 class SnRenderer {
 
@@ -56,46 +46,38 @@ class SnRenderer {
     private lateinit var currentFile: PdfFileData
 
     private val pages: MutableList<PageInfo> = mutableListOf()
-    private val cache: LinkedList<RenderPageData> = LinkedList()
-
-    private var prevIndex: Int = 0
 
     private val screenHeight = Resources.getSystem().displayMetrics.heightPixels
     private val screenWidth = Resources.getSystem().displayMetrics.widthPixels
 
-    private val renderingResultPublisher = PublishSubject.create<RenderPageData>()
+    private val renderingResultPublisher = PublishSubject.create<RenderedPageData>()
     private val renderingThread = HandlerThread("pdf_rendering").apply { this.start() }
     private val renderingHandler = object : Handler(renderingThread.looper) {
         override fun handleMessage(msg: Message) {
 //            Thread.sleep(1000)
-            val indexOfPageToRender = msg.what
-            val page = pages[indexOfPageToRender]
-            if (page.pdfFileData.file != currentFile.file) {
+            val pageInfoToRender = msg.obj as PageToRender
+            val pdfFileData = pageInfoToRender.pageInfo.pdfFileData
+            if (pdfFileData.file != currentFile.file) {
                 pdfRenderer.close()
-                initMainRenderer(page.pdfFileData)
+                initMainRenderer(pdfFileData)
             }
-
-            val renderedPage = renderPage(pdfRenderer.openPage(page.pageIndex), page.quality)
-            val renderData = RenderPageData(page, renderedPage)
-
-            updatePageInCachePage(renderData)
-            renderingResultPublisher.onNext(renderData)
+            val bitmap = renderPage(pdfRenderer.openPage(pageInfoToRender.pageInfo.pageIndex), pageInfoToRender.quality)
+            val renderedData = RenderedPageData(pageInfoToRender.pageInfo, pageInfoToRender.quality, bitmap)
+            renderingResultPublisher.onNext(renderedData)
         }
     }
 
-    private fun updatePageInCachePage(renderData: RenderPageData) {
-        Log.d(TAG, "find in cache ${renderData.pageInfo.pageIndexOfTotal}")
-        val i = cache.indexOfFirst { it.pageInfo.pageIndexOfTotal == renderData.pageInfo.pageIndexOfTotal }
-        if (i != -1) cache[i] = renderData
-    }
-
     fun open(files: List<File>): List<PageInfo> {
-        initPages(files)
-        initCache()
-        return pages
+        return initPages(files)
     }
 
-    private fun initPages(files: List<File>) {
+    fun close() {
+        renderingThread.quitSafely()
+    }
+
+    fun getPages(): List<PageInfo> = pages
+
+    private fun initPages(files: List<File>): List<PageInfo> {
         var indexOfTotal = 0
         files.forEach { file ->
             val parcelFileDescriptor =
@@ -111,6 +93,7 @@ class SnRenderer {
             }
             if (!::currentFile.isInitialized && !::pdfRenderer.isInitialized) initMainRenderer(fileData)
         }
+        return pages
     }
 
     private fun initMainRenderer(fileData: PdfFileData) {
@@ -120,89 +103,30 @@ class SnRenderer {
         pdfRenderer = PdfRenderer(parcelFileDescriptor)
     }
 
-    private fun initCache() {
-        val pages = if (currentFile.pageCount < CACHE_SIZE) {
-            (0 until currentFile.pageCount)
-        } else {
-            (0 until CACHE_SIZE)
-        }
-        pages.forEach { renderToCache(Direction.Forward(it)) }
+    fun getCurrentFile(): PdfFileData {
+        return currentFile
     }
 
-    fun close() {
-        renderingThread.quitSafely()
+    fun renderPage(index:Int, quality: Quality): Observable<RenderedPageData> {
+        val pageInfo = pages[index]
+        val p = PageToRender(pageInfo, quality)
+        val message = Message().apply { obj = p }
+        renderingHandler.sendMessage(message)
+        return waitRender(pageInfo.pageIndexOfTotal, quality)
     }
 
-    fun getPage(position: Int): Observable<RenderPageData> {
-        Log.d(TAG, "get page $position")
-        val pageToRender = pages[position]
-
-        val cachedPage =
-            cache.firstOrNull { it.pageInfo.pageIndexOfTotal == pageToRender.pageIndexOfTotal }
-        val pageToReturn = if (cachedPage?.bitmap != null) {
-            Observable.just(cachedPage)
-        } else {
-            renderingResultPublisher.filter { it.pageInfo.pageIndexOfTotal == position }
-        }
-
-        renderNextPage(pageToRender)
-        prevIndex = pageToRender.pageIndexOfTotal
-        return pageToReturn
+    fun waitRender(position: Int, quality: Quality): Observable<RenderedPageData> {
+        return renderingResultPublisher
+            .filter { it.pageInfo.pageIndexOfTotal == position }
+            .filter { it.quality == quality }
     }
-
-    private fun renderNextPage(pageToRender: PageInfo) {
-        if (pageToRender.pageIndexOfTotal > prevIndex) {
-            //going forward
-            val lastPageNumberInCache = cache.last.pageInfo.pageIndexOfTotal
-            if (lastPageNumberInCache != pages.lastIndex) {
-                if (lastPageNumberInCache - pageToRender.pageIndexOfTotal <= CACHE_PAGES_SIDE_LIMIT) {
-                    val nextIndexToRender = lastPageNumberInCache + 1
-                    renderToCache(Direction.Forward(nextIndexToRender))
-                }
-            }
-        } else {
-            //going back
-            val firstNumberInCache = cache.first.pageInfo.pageIndexOfTotal
-            if (firstNumberInCache != 0) {
-                if (pageToRender.pageIndexOfTotal - firstNumberInCache <= CACHE_PAGES_SIDE_LIMIT) {
-                    val nextIndexToRender = firstNumberInCache - 1
-                    renderToCache(Direction.Backward(nextIndexToRender))
-                }
-            }
-        }
-    }
-
-    private fun renderToCache(direction: Direction) {
-        //write cache stub
-        val pageToRender = pages[direction.index]
-        when (direction) {
-            is Direction.Backward -> {
-                cache.addFirst(RenderPageData(pageToRender, null))
-                if (cache.size > CACHE_SIZE) clearCachedPage(cache.removeLast())
-                Log.d(TAG, "page ${direction.index} added in front of cache")
-            }
-            is Direction.Forward -> {
-                cache.addLast(RenderPageData(pageToRender, null))
-                if (cache.size > CACHE_SIZE) clearCachedPage(cache.removeFirst())
-                Log.d(TAG, "page ${direction.index} added in the end of cache")
-            }
-        }
-
-        cache.forEach { Log.d(TAG, "cache state - ${it.pageInfo.pageIndexOfTotal}") }
-        renderingHandler.sendEmptyMessage(pageToRender.pageIndexOfTotal)
-    }
-
-    private fun clearCachedPage(cachedPage: RenderPageData) {
-        cachedPage.bitmap?.recycle()
-    }
-
 
     private fun renderPage(
         currentPage: PdfRenderer.Page,
-        renderType: RenderType,
+        quality: Quality,
         transformMatrix: Matrix? = null
     ): Bitmap {
-        val pageSize = calculatePageSize(currentPage, renderType.scaleFactor)
+        val pageSize = calculatePageSize(currentPage, quality.scaleFactor)
         val bitmap = Bitmap.createBitmap(pageSize.first, pageSize.second, Bitmap.Config.ARGB_8888)
         currentPage.render(bitmap, null, transformMatrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
         currentPage.close()
@@ -237,10 +161,10 @@ class SnRenderer {
         return Pair(pageWidth, pageHeight)
     }
 
-    enum class RenderType(val scaleFactor: Float) {
-        NORMAL(1F),
-        PREVIEW(0.2F),
-        PREVIEW_LOW(0.1F)
+    sealed class Quality(val scaleFactor: Float) {
+        object Normal:Quality(1F)
+        object Preview:Quality(0.2F)
+        object PreviewLow:Quality(0.1F)
     }
 
 }

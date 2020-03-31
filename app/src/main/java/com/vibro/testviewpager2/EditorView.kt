@@ -20,9 +20,11 @@ import java.io.File
 
 class SnRendererWrapper(val pdfPageProvider: SnRenderer)
 
+lateinit var renderer: PdfRenderingEngine
+
 class EditorView : FrameLayout, KoinComponent {
 
-    private lateinit var renderer: SnRenderer
+//    private lateinit var renderer: PdfRenderingEngine
     private val pages: MutableList<PageInfo> = mutableListOf()
 
     constructor(context: Context) : super(context) {
@@ -53,8 +55,7 @@ class EditorView : FrameLayout, KoinComponent {
 
         return Observable.just(files)
             .map {
-                renderer = SnRenderer()
-                get<SnRendererWrapper> { parametersOf(renderer) }
+                renderer = PdfRenderingEngine()
                 pages.addAll(renderer.open(it))
                 Unit
             }

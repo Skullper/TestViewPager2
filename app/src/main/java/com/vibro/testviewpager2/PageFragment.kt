@@ -11,7 +11,7 @@ import org.koin.android.ext.android.inject
 
 class PageFragment : Fragment() {
 
-    private val renderer: SnRenderer by inject()
+//    private val renderer: PdfRenderingEngine by inject()
 
     override fun onCreateView(
         inflater: LayoutInflater,
