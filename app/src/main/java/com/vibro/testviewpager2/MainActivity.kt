@@ -17,8 +17,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         val files = listOf(
+            getPdf(this, "b.pdf"),
             getPdf(this, "b.pdf")
-//            getPdf(this, "b.pdf")
         )
         editorView.show(files, this)
             .compose(applySchedulersObservable())

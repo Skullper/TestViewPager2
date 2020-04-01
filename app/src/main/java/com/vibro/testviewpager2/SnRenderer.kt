@@ -36,7 +36,16 @@ data class PdfFileData(val file: File, val pageCount: Int) : Parcelable
 
 data class PageToRender(val pageInfo: PageInfo, val quality: SnRenderer.Quality = SnRenderer.Quality.Normal)
 
-data class RenderedPageData(val pageInfo: PageInfo, val quality: SnRenderer.Quality?, val bitmap: Bitmap? = null)
+data class RenderedPageData(val pageInfo: PageInfo,
+                            val quality: SnRenderer.Quality?,
+                            val bitmap: Bitmap? = null,
+                            val status:RenderingStatus)
+
+sealed class RenderingStatus {
+    object Wait:RenderingStatus()
+    object Rendering:RenderingStatus()
+    object Complete:RenderingStatus()
+}
 
 class SnRenderer {
 
@@ -62,7 +71,7 @@ class SnRenderer {
                 initMainRenderer(pdfFileData)
             }
             val bitmap = renderPage(pdfRenderer.openPage(pageInfoToRender.pageInfo.pageIndex), pageInfoToRender.quality)
-            val renderedData = RenderedPageData(pageInfoToRender.pageInfo, pageInfoToRender.quality, bitmap)
+            val renderedData = RenderedPageData(pageInfoToRender.pageInfo, pageInfoToRender.quality, bitmap, RenderingStatus.Complete)
             renderingResultPublisher.onNext(renderedData)
         }
     }
