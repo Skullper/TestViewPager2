@@ -17,12 +17,14 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         val files = listOf(
-            getPdf(this, "b.pdf"),
             getPdf(this, "b.pdf")
+//            getPdf(this, "b.pdf")
         )
         editorView.show(files, this)
             .compose(applySchedulersObservable())
             .subscribeAndDispose()
+
+        btn_some.setOnClickListener { editorView.openPage() }
     }
 
     override fun onDestroy() {

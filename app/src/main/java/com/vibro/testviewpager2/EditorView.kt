@@ -14,17 +14,17 @@ import io.reactivex.Observable
 import io.reactivex.android.schedulers.AndroidSchedulers
 import kotlinx.android.synthetic.main.view_editor.view.*
 import org.koin.core.KoinComponent
-import org.koin.core.get
-import org.koin.core.parameter.parametersOf
 import java.io.File
 
 class SnRendererWrapper(val pdfPageProvider: SnRenderer)
 
 lateinit var renderer: PdfRenderingEngine
 
+var count = 1
+
 class EditorView : FrameLayout, KoinComponent {
 
-//    private lateinit var renderer: PdfRenderingEngine
+    //    private lateinit var renderer: PdfRenderingEngine
     private val pages: MutableList<PageInfo> = mutableListOf()
 
     constructor(context: Context) : super(context) {
@@ -64,6 +64,12 @@ class EditorView : FrameLayout, KoinComponent {
                 val adapter = PageAdapter(fragmentActivity, pages)
                 viewPager.adapter = adapter
             }
+    }
+
+    fun openPage() {
+        if (count % 2 > 0) viewPager.setCurrentItem(17)
+        else viewPager.setCurrentItem(8)
+        count++
     }
 
     fun close() {

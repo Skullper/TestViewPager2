@@ -24,6 +24,7 @@ class PageFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val pageIndex = arguments?.getInt(ARG_PAGE_INDEX) ?: 0
+        position.setText(pageIndex.toString())
         renderer.getPage(pageIndex)
             .compose(applySchedulersObservable())
             .subscribeAndDispose(

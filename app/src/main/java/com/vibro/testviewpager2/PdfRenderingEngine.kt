@@ -16,7 +16,7 @@ class PdfRenderingEngine {
     fun open(files: List<File>): List<PageInfo> {
         snRenderer.open(files)
             .run { pages.addAll(this) }
-        pagesCache.initCache()
+//        pagesCache.initCache()
         return pages
     }
 
@@ -38,10 +38,22 @@ class PagesCache(private val snRenderer: SnRenderer) {
     private val TAG = this.javaClass.simpleName
 
     private val CACHE_SIZE = 7
+    private val CACHE_BUFFER = CACHE_SIZE - 1
     private val CACHE_PAGES_SIDE_LIMIT = 2
     private var prevIndex: Int = 0
 
-    private val cache: LinkedList<RenderedPageData> = LinkedList()
+    private val firstIndexInCache: Int
+        get() {
+            if (cache.isEmpty()) return 0
+            return cache.first.pageInfo.pageIndexOfTotal
+        }
+    private val lastIndexInCache: Int
+        get() {
+            if (cache.isEmpty()) return 0
+            return cache.last.pageInfo.pageIndexOfTotal
+        }
+
+    private var cache: LinkedList<RenderedPageData> = LinkedList()
 
     fun initCache() {
         val pageCountOfInitialFile = snRenderer.getCurrentFile().pageCount
@@ -83,18 +95,89 @@ class PagesCache(private val snRenderer: SnRenderer) {
 
     fun getCachedPage(currentPageToRender: PageInfo): Observable<RenderedPageData> {
 
-        val cachedPage =
-            cache.firstOrNull { it.pageInfo.pageIndexOfTotal == currentPageToRender.pageIndexOfTotal }
-        val pageToReturn = if (cachedPage?.bitmap != null) {
-            Observable.just(cachedPage)
-                .doOnNext { next(currentPageToRender) }
+        val i = currentPageToRender.pageIndexOfTotal
+        Log.d(TAG, "get cached page $i")
+        val cachedPage = cache.firstOrNull { it.pageInfo.pageIndexOfTotal == i }
+
+        alignCache(currentPageToRender)
+//        val pageToReturn = if (cachedPage == null) {
+//
+//            val pages = snRenderer.getPages()
+//            val newCache = LinkedList<RenderedPageData>()
+//
+//            if (i > lastIndexInCache) {
+//                val dif = pages.lastIndex - i
+//                if (dif > CACHE_BUFFER) {
+//                    (0..CACHE_BUFFER).forEach { ind -> newCache.addLast(getPage(i + ind)) }
+//                } else {
+//                    val intRange = (pages.lastIndex downTo pages.lastIndex - CACHE_BUFFER)
+//                    intRange.forEach { ind -> newCache.addFirst(getPage(ind)) }
+//                }
+//            } else if (i < firstIndexInCache) {
+//                if (i > CACHE_BUFFER) {
+//                    (i downTo i-CACHE_BUFFER).forEach { ind -> newCache.addFirst(getPage(ind)) }
+//                }else{
+//                    (0..CACHE_BUFFER).forEach { ind -> newCache.addLast(getPage(ind)) }
+//                }
+//            }
+//            cache = newCache
+//            cache.forEach {
+//                Log.d(TAG, "cache ${it.pageInfo.pageIndexOfTotal}")
+//            }
+//            Observable.error(IllegalAccessError())
+//        } else if (cachedPage.bitmap == null) {
+//            snRenderer.waitRender(i, SnRenderer.Quality.Normal)
+//                .doOnNext { updatePageInCachePage(it) }
+//                .doOnNext { next(currentPageToRender) }
+//        } else {
+//            Observable.just(cachedPage)
+//                .doOnNext { next(currentPageToRender) }
+//        }
+
+        return Observable.just(RenderedPageData(currentPageToRender, SnRenderer.Quality.Normal))
+//        return pageToReturn
+    }
+
+    private fun alignCache(currentPageToRender: PageInfo) {
+
+        val i = currentPageToRender.pageIndexOfTotal
+        val pages = snRenderer.getPages()
+        val newCache = LinkedList<RenderedPageData>()
+
+        if (i > lastIndexInCache) {
+            val dif = pages.lastIndex - i
+            if (dif > CACHE_BUFFER) {
+                (0..CACHE_BUFFER).forEach { ind -> newCache.addLast(getPage(i + ind)) }
+            } else {
+                val intRange = (pages.lastIndex downTo pages.lastIndex - CACHE_BUFFER)
+                intRange.forEach { ind -> newCache.addFirst(getPage(ind)) }
+            }
+        } else if (i <= firstIndexInCache) {
+            if (i > CACHE_BUFFER) {
+                (i downTo i - CACHE_BUFFER).forEach { ind -> newCache.addFirst(getPage(ind)) }
+            } else {
+                (0..CACHE_BUFFER).forEach { ind -> newCache.addLast(getPage(ind)) }
+            }
         } else {
-            snRenderer.waitRender(currentPageToRender.pageIndexOfTotal, SnRenderer.Quality.Normal)
-                .doOnNext { updatePageInCachePage(it) }
-                .doOnNext { next(currentPageToRender) }
+            if (i + 3 <= pages.lastIndex && i - 3 >= 0) {
+                (i + 1..i + 3).forEach { ind -> newCache.addLast(getPage(ind)) }
+                (i downTo i - 3).forEach { ind -> newCache.addFirst(getPage(ind)) }
+            }
+
+
+
+        }
+        cache = if (newCache.isNotEmpty()) newCache else cache
+        cache.forEach {
+            Log.d(TAG, "cache ${it.pageInfo.pageIndexOfTotal}")
         }
 
-        return pageToReturn
+    }
+
+    private fun getPage(i: Int): RenderedPageData {
+        val pages = snRenderer.getPages()
+        val p = cache.firstOrNull { it.pageInfo.pageIndexOfTotal == i }?.pageInfo ?: pages[i]
+        return RenderedPageData(p, SnRenderer.Quality.Normal)
     }
 
     private fun next(pageToRender: PageInfo) {
@@ -105,20 +188,18 @@ class PagesCache(private val snRenderer: SnRenderer) {
     private fun renderNextPage(pageToRender: PageInfo) {
         if (pageToRender.pageIndexOfTotal > prevIndex) {
             //going forward
-            val lastPageNumberInCache = cache.last.pageInfo.pageIndexOfTotal
             val pages = snRenderer.getPages()
-            if (lastPageNumberInCache != pages.lastIndex) {
-                if (lastPageNumberInCache - pageToRender.pageIndexOfTotal <= CACHE_PAGES_SIDE_LIMIT) {
-                    val nextIndexToRender = lastPageNumberInCache + 1
+            if (lastIndexInCache != pages.lastIndex) {
+                if (lastIndexInCache - pageToRender.pageIndexOfTotal <= CACHE_PAGES_SIDE_LIMIT) {
+                    val nextIndexToRender = lastIndexInCache + 1
                     renderToCache(Direction.Forward(nextIndexToRender))
                 }
             }
         } else {
             //going back
-            val firstNumberInCache = cache.first.pageInfo.pageIndexOfTotal
-            if (firstNumberInCache != 0) {
-                if (pageToRender.pageIndexOfTotal - firstNumberInCache <= CACHE_PAGES_SIDE_LIMIT) {
-                    val nextIndexToRender = firstNumberInCache - 1
+            if (firstIndexInCache != 0) {
+                if (pageToRender.pageIndexOfTotal - firstIndexInCache <= CACHE_PAGES_SIDE_LIMIT) {
+                    val nextIndexToRender = firstIndexInCache - 1
                     renderToCache(Direction.Backward(nextIndexToRender))
                 }
             }
