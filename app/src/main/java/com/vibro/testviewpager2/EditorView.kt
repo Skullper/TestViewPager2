@@ -67,9 +67,10 @@ class EditorView : FrameLayout, KoinComponent {
     }
 
     fun openPage() {
-        if (count % 2 > 0) viewPager.setCurrentItem(17)
-        else viewPager.setCurrentItem(8)
-        count++
+        viewPager.setCurrentItem(10, false)
+//        if (count % 2 > 0) viewPager.setCurrentItem(17)
+//        else viewPager.setCurrentItem(8)
+//        count++
     }
 
     fun close() {

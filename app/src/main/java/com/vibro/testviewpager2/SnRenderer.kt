@@ -126,8 +126,8 @@ class SnRenderer {
 
     fun waitRender(position: Int, quality: Quality): Observable<RenderedPageData> {
         return renderingResultPublisher
-            .filter { it.pageInfo.pageIndexOfTotal == position }
-            .filter { it.quality == quality }
+            .filter { it.pageInfo.pageIndexOfTotal == position && it.quality == quality}
+            .take(1)
     }
 
     private fun renderPage(
