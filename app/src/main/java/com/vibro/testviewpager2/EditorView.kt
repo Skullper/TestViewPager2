@@ -73,19 +73,22 @@ class EditorView : FrameLayout, KoinComponent {
         viewPager?.setPageTransformer(MarginPageTransformer(50))
     }
 
-    fun addPage(imageUri: Uri) {
-        engine.addPage(imageUri)
-        viewPager.adapter?.notifyDataSetChanged()
-        setPage(engine.getPagesCount() - 1)
+    fun addPage(imageUri: Uri): Observable<Boolean> {
+        return engine.addPage(imageUri).doOnNext {
+            viewPager.adapter?.notifyDataSetChanged()
+            setPage(engine.getPages().lastIndex)
+        }
+
     }
 
     fun setPage(index: Int) {
         viewPager.setCurrentItem(index, false)
     }
 
-    inner class PageAdapter(fragmentActivity: FragmentActivity) : FragmentStateAdapter(fragmentActivity) {
+    inner class PageAdapter(fragmentActivity: FragmentActivity) :
+        FragmentStateAdapter(fragmentActivity) {
 
-        override fun getItemCount(): Int = engine.getPagesCount()
+        override fun getItemCount(): Int = engine.getPages().size
 
         override fun createFragment(position: Int): Fragment {
             return PageFragment.newInstance(position)

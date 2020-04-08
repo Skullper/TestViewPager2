@@ -3,7 +3,6 @@ package com.vibro.testviewpager2
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -20,9 +19,6 @@ class MainActivity : AppCompatActivity() {
 
     private val RC_GET_IMG: Int = 2222
     val DIRECTORY = "app_docs"
-
-
-    private val engine: PdfRenderingEngine by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,7 +50,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 val imageUri: Uri? = data?.data
                 imageUri?.let {
-                    editorView.addPage(imageUri)
+                    editorView.addPage(imageUri).subscribeAndDispose()
                 }
             } catch (e: FileNotFoundException) {
                 e.printStackTrace()

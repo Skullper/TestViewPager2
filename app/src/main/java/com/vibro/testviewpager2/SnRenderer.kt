@@ -4,6 +4,7 @@ import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.*
 import android.util.Log
 import io.reactivex.Observable
@@ -29,7 +30,9 @@ data class PageInfo(
     val pageIndex: Int,
     val pageIndexOfTotal: Int,
     val pageAttributes: PageAttributes? = null,
-    val pageChangesData: PageProvider.PageChangesData? = null)
+    val pageChangesData: PageChangesData? = null)
+
+data class PageChangesData(val uri: Uri)
 
 data class PdfFileData(val file: File, val pageCount: Int)
 

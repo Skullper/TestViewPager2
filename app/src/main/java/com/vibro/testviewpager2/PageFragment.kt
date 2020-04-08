@@ -8,7 +8,6 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import kotlinx.android.synthetic.main.fragment_page.*
 import org.koin.android.ext.android.inject
-import org.koin.core.inject
 
 class PageFragment : Fragment() {
 
