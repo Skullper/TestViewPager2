@@ -25,14 +25,13 @@ import kotlin.math.roundToInt
  * @param pageIndexOfTotal index of the page displayed on the screen. This page number refers to the index in the list of pages of all documents
  * which are rendering at that point
  */
-@Parcelize
 data class PageInfo(
     val pdfFileData: PdfFileData,
     val pageIndex: Int,
-    val pageIndexOfTotal: Int) : Parcelable
+    val pageIndexOfTotal: Int,
+    val pageAttributes: PageAttributes)
 
-@Parcelize
-data class PdfFileData(val file: File, val pageCount: Int) : Parcelable
+data class PdfFileData(val file: File, val pageCount: Int)
 
 data class PageToRender(val pageInfo: PageInfo, val quality: SnRenderer.Quality = SnRenderer.Quality.Normal)
 
@@ -47,7 +46,12 @@ sealed class RenderingStatus {
     object Complete:RenderingStatus()
 }
 
-class SnRenderer {
+sealed class RotateDirection(open val angle: Float) {
+    data class Clockwise(override val angle: Float = 90F) : RotateDirection(angle)
+    data class Counterclockwise(override val angle: Float = -90F) : RotateDirection(angle)
+}
+
+class SnRenderer(private val pageTransformer: PageTransformer) {
 
     private val TAG = this.javaClass.simpleName
 
@@ -63,17 +67,24 @@ class SnRenderer {
     private val renderingThread = HandlerThread("pdf_rendering").apply { this.start() }
     private val renderingHandler = object : Handler(renderingThread.looper) {
         override fun handleMessage(msg: Message) {
-//            Thread.sleep(1000)
             val pageInfoToRender = msg.obj as PageToRender
             val pdfFileData = pageInfoToRender.pageInfo.pdfFileData
             if (pdfFileData.file != currentFile.file) {
                 pdfRenderer.close()
                 initMainRenderer(pdfFileData)
             }
-            val bitmap = renderPage(pdfRenderer.openPage(pageInfoToRender.pageInfo.pageIndex), pageInfoToRender.quality)
+            val currentPage = pdfRenderer.openPage(pageInfoToRender.pageInfo.pageIndex)
+            val attributes = pageInfoToRender.pageInfo.pageAttributes
+            val pageAttributes = if (attributes.viewSize.first == 0) setPageAttributes(currentPage, pageInfoToRender) else attributes
+            val bitmap = renderPage(currentPage, pageAttributes)
+
             val renderedData = RenderedPageData(pageInfoToRender.pageInfo, pageInfoToRender.quality, bitmap, RenderingStatus.Complete)
             renderingResultPublisher.onNext(renderedData)
         }
+    }
+
+    fun updatePage(pageInfo: PageInfo) {
+        pages[pageInfo.pageIndexOfTotal] = pageInfo
     }
 
     fun open(files: List<File>): List<PageInfo> {
@@ -86,6 +97,44 @@ class SnRenderer {
 
     fun getPages(): List<PageInfo> = pages
 
+    fun getCurrentFile(): PdfFileData {
+        return currentFile
+    }
+
+    fun renderPage(index: Int, quality: Quality): Observable<RenderedPageData> {
+        val pageInfo = pages[index]
+        val p = PageToRender(pageInfo, quality)
+        val message = Message().apply { obj = p }
+        renderingHandler.sendMessage(message)
+        return waitRender(pageInfo.pageIndexOfTotal, quality)
+    }
+
+    fun waitRender(position: Int, quality: Quality): Observable<RenderedPageData> {
+        return renderingResultPublisher
+            .filter { it.pageInfo.pageIndexOfTotal == position }
+            .filter { it.quality == quality }
+    }
+
+    fun rotatePage(index: Int): PageInfo {
+        val originalPage = pages[index]
+        val result = pageTransformer.rotatePage(originalPage.pageAttributes as FrameworkPageAttributes)
+        val updatedPage = originalPage.copy(pageAttributes = result)
+        updatePage(updatedPage)
+        return updatedPage
+    }
+
+    fun rotateAllPages(direction: RotateDirection): Observable<Unit> {
+        // TODO(08.04.2020)
+        return Observable.fromIterable(pages)
+            .map { pageInfo ->
+                val attributes = pageInfo.pageAttributes
+                val currentDirection = RotateDirection.Clockwise(attributes.rotateDirection.angle + direction.angle)
+
+//                    pageInfo.copy(pageAttributes = DefaultPageAttributes(rotateDirection = currentDirection))
+            }
+//                .map { pageInfo -> pages[pageInfo.pageIndexOfTotal] = pageInfo }
+    }
+
     private fun initPages(files: List<File>): List<PageInfo> {
         var indexOfTotal = 0
         files.forEach { file ->
@@ -97,7 +146,8 @@ class SnRenderer {
             val fileData = PdfFileData(file, filePagesCount)
             val filePages = (0 until filePagesCount)
             filePages.forEach {
-                val info = PageInfo(fileData, it, indexOfTotal++)
+                val index = indexOfTotal++
+                val info = PageInfo(fileData, it, index, FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), RotateDirection.Clockwise(0F), Matrix()))
                 pages.add(info)
             }
             if (!::currentFile.isInitialized && !::pdfRenderer.isInitialized) initMainRenderer(fileData)
@@ -112,32 +162,39 @@ class SnRenderer {
         pdfRenderer = PdfRenderer(parcelFileDescriptor)
     }
 
-    fun getCurrentFile(): PdfFileData {
-        return currentFile
+    private fun setPageAttributes(currentPage: PdfRenderer.Page, pageInfoToRender: PageToRender): PageAttributes? {
+        val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
+        val pageIndex = pages.indexOf(pageInfoToRender.pageInfo)
+        val matrix = Matrix().apply {
+            val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
+            postScale(initialScale, initialScale)
+        }
+        val direction = pageInfoToRender.pageInfo.pageAttributes.rotateDirection
+        val newAttr = if (direction.angle == 0F) {
+            FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), matrix = matrix)
+        } else {
+            pageTransformer.rotatePage(FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), direction, matrix))
+        }
+        pages[pageIndex] = pages[pageIndex].copy(pageAttributes = newAttr)
+        return newAttr
     }
 
-    fun renderPage(index:Int, quality: Quality): Observable<RenderedPageData> {
-        val pageInfo = pages[index]
-        val p = PageToRender(pageInfo, quality)
-        val message = Message().apply { obj = p }
-        renderingHandler.sendMessage(message)
-        return waitRender(pageInfo.pageIndexOfTotal, quality)
-    }
+    private fun renderPage(currentPage: PdfRenderer.Page, pageAttributes: PageAttributes? = null): Bitmap {
+        if (pageAttributes is NativePageAttributes) throw IllegalArgumentException("You need to use FrameworkPageAttributes here")
+        if (pageAttributes == null) throw NullPointerException("Page attributes cannot be null during rendering")
 
-    fun waitRender(position: Int, quality: Quality): Observable<RenderedPageData> {
-        return renderingResultPublisher
-            .filter { it.pageInfo.pageIndexOfTotal == position && it.quality == quality}
-            .take(1)
-    }
+        val (viewWidth, viewHeight) = pageAttributes.viewSize
+        val (pageWidth, pageHeight) = pageAttributes.pageSize
+        val matrix = (pageAttributes as FrameworkPageAttributes).matrix
+        val needToRotate = matrix.isPortrait()
 
-    private fun renderPage(
-        currentPage: PdfRenderer.Page,
-        quality: Quality,
-        transformMatrix: Matrix? = null
-    ): Bitmap {
-        val pageSize = calculatePageSize(currentPage, quality.scaleFactor)
-        val bitmap = Bitmap.createBitmap(pageSize.first, pageSize.second, Bitmap.Config.ARGB_8888)
-        currentPage.render(bitmap, null, transformMatrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+        val bitmap: Bitmap = if (needToRotate) {
+            Bitmap.createBitmap(viewWidth, viewHeight, Bitmap.Config.ARGB_8888)
+        } else {
+            val scale = viewWidth.toFloat() / pageHeight.toFloat()
+            Bitmap.createBitmap(viewWidth, (pageWidth.toFloat() * scale).toInt(), Bitmap.Config.ARGB_8888)
+        }
+        currentPage.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
         currentPage.close()
         return bitmap
     }
@@ -171,9 +228,9 @@ class SnRenderer {
     }
 
     sealed class Quality(val scaleFactor: Float) {
-        object Normal:Quality(1F)
-        object Preview:Quality(0.2F)
-        object PreviewLow:Quality(0.1F)
+        object Normal : Quality(1F)
+        object Preview : Quality(0.2F)
+        object PreviewLow : Quality(0.1F)
     }
 
 }

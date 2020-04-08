@@ -14,17 +14,13 @@ import io.reactivex.Observable
 import io.reactivex.android.schedulers.AndroidSchedulers
 import kotlinx.android.synthetic.main.view_editor.view.*
 import org.koin.core.KoinComponent
+import org.koin.core.inject
 import java.io.File
-
-class SnRendererWrapper(val pdfPageProvider: SnRenderer)
-
-lateinit var renderer: PdfRenderingEngine
-
-var count = 1
 
 class EditorView : FrameLayout, KoinComponent {
 
-    //    private lateinit var renderer: PdfRenderingEngine
+    private val renderer: PdfRenderingEngine by inject()
+
     private val pages: MutableList<PageInfo> = mutableListOf()
 
     constructor(context: Context) : super(context) {
@@ -55,7 +51,6 @@ class EditorView : FrameLayout, KoinComponent {
 
         return Observable.just(files)
             .map {
-                renderer = PdfRenderingEngine()
                 pages.addAll(renderer.open(it))
                 Unit
             }

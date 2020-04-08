@@ -6,12 +6,11 @@ import java.io.File
 import java.util.*
 import kotlin.math.floor
 
-class PdfRenderingEngine {
+class PdfRenderingEngine(private val snRenderer: SnRenderer,
+                         private val pagesCache: PagesCache) {
 
     private val TAG = this.javaClass.simpleName
 
-    private val snRenderer = SnRenderer()
-    private val pagesCache = PagesCache(snRenderer)
     private val pages: MutableList<PageInfo> = mutableListOf()
 
     fun open(files: List<File>): List<PageInfo> {
@@ -31,6 +30,17 @@ class PdfRenderingEngine {
         return pagesCache.getCachedPage(pageToRender)
     }
 
+    fun rotatePage(index: Int): Observable<RenderedPageData> {
+        val updatedPage = snRenderer.rotatePage(index)
+        pagesCache.updatePageInCache(RenderedPageData(updatedPage, SnRenderer.Quality.Normal, null, RenderingStatus.Wait))
+        return pagesCache.getCachedPage(updatedPage)
+    }
+
+    fun rotateAllPages(index: Int): Observable<RenderedPageData> {
+        return Observable.fromCallable(pagesCache::clearCache)
+            .flatMap { snRenderer.rotateAllPages(RotateDirection.Clockwise()) }
+            .flatMap { pagesCache.getCachedPage(snRenderer.getPages()[index]) }
+    }
 
 }
 
@@ -55,6 +65,16 @@ class PagesCache(private val snRenderer: SnRenderer) {
                     snRenderer.waitRender(page.pageInfo.pageIndexOfTotal, SnRenderer.Quality.Normal)
                 }
             }
+    }
+
+    fun updatePageInCache(renderData: RenderedPageData) {
+        Log.d("TAG Cache", "find in cache ${renderData.pageInfo.pageIndexOfTotal}")
+        val i = cache.indexOfFirst { it.pageInfo.pageIndexOfTotal == renderData.pageInfo.pageIndexOfTotal }
+        if (i != -1) cache[i] = renderData
+    }
+
+    fun clearCache() {
+        cache.clear()
     }
 
     private fun alignCache(currentPageToRender: PageInfo) {
@@ -108,12 +128,4 @@ class PagesCache(private val snRenderer: SnRenderer) {
         )
     }
 
-    private fun updatePageInCache(renderData: RenderedPageData) {
-        Log.d(TAG,
-            "upd in cache ${renderData.pageInfo.pageIndexOfTotal}, status ${renderData.status}"
-        )
-        val i =
-            cache.indexOfFirst { it.pageInfo.pageIndexOfTotal == renderData.pageInfo.pageIndexOfTotal }
-        if (i != -1) cache[i] = renderData
-    }
 }
