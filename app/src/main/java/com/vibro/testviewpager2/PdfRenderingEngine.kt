@@ -7,6 +7,7 @@ import com.bumptech.glide.Glide
 import io.reactivex.Observable
 import java.io.File
 import java.util.*
+import kotlin.collections.ArrayList
 import kotlin.math.floor
 
 class PageProvider(private val context: Context, private val snRenderer: SnRenderer) {
@@ -14,16 +15,14 @@ class PageProvider(private val context: Context, private val snRenderer: SnRende
     data class PageChangesData(val uri: Uri)
 
     private val originalPages: MutableList<PageInfo> = mutableListOf()
-    private val currentPages: MutableList<PageInfo> = mutableListOf()
+    private val currentPages: MutableList<PageInfo> by lazy { ArrayList<PageInfo>(originalPages) }
     private var hasChanges = false
 
     fun open(files: List<File>): List<PageInfo> {
         return snRenderer.open(files).apply { originalPages.addAll(this) }
     }
 
-    fun close() {
-        snRenderer.close()
-    }
+    fun close() = snRenderer.close()
 
     fun getPages() = if (currentPages.isEmpty()) originalPages else currentPages
 
@@ -44,7 +43,6 @@ class PageProvider(private val context: Context, private val snRenderer: SnRende
     }
 
     fun addPage(uri: Uri) {
-        initIfNeeded()
         val pageIndex = currentPages.lastIndex + 1
         val pageInfo = PageInfo(null, pageIndex, pageIndex, null, PageChangesData(uri))
         currentPages.add(pageInfo)
@@ -56,10 +54,6 @@ class PageProvider(private val context: Context, private val snRenderer: SnRende
             currentPages.isEmpty() -> false
             else -> currentPages[index].pageChangesData != null
         }
-    }
-
-    private fun initIfNeeded() {
-        if (!hasChanges) currentPages.addAll(originalPages)
     }
 
 }
