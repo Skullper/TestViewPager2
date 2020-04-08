@@ -8,10 +8,11 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import kotlinx.android.synthetic.main.fragment_page.*
 import org.koin.android.ext.android.inject
+import org.koin.core.inject
 
 class PageFragment : Fragment() {
 
-//    private val renderer: PdfRenderingEngine by inject()
+    private val renderer: PdfRenderingEngine by inject()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -34,22 +35,15 @@ class PageFragment : Fragment() {
                 },
                 { error -> Log.e("TAGA", "Error: ${error.message}") }
             )
-//        renderer.also {
-//            val previewRenderPage = PdfPageProvider.PageToRender(pageIndex, PdfPageProvider.RenderType.PREVIEW)
-////            val previewCallback: ((Bitmap?) -> Unit)? = { bitmap: Bitmap? ->
-////                // TODO-Pavliuk (25.03.2020) later
-////            }
-////            renderer.renderPageAsync(previewRenderPage, previewCallback)
-//
-//            val normalRenderPage = previewRenderPage.copy(renderType = PdfPageProvider.RenderType.NORMAL)
-//            val normalCallback = { bitmap: Bitmap? ->
-//                iv_page_fragment?.setImageBitmap(bitmap)
-//                Unit
-////                init(bitmap, renderer)
-//            }
-//
-//            renderer.renderPageAsync(normalRenderPage, normalCallback)
-//        }
+        iv_page_fragment?.setOnClickListener {
+            renderer.rotatePage(pageIndex)
+                .compose(applySchedulersObservable())
+                .map { page -> page.bitmap!! }
+                .subscribeAndDispose(
+                    { iv_page_fragment?.setImageBitmap(it)},
+                    { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
+                )
+        }
     }
 
     companion object {
