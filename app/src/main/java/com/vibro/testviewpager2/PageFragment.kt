@@ -36,13 +36,13 @@ class PageFragment : Fragment() {
                 { error -> Log.e("TAGA", "Error: ${error.message}") }
             )
         iv_page_fragment?.setOnClickListener {
-            renderer.rotatePage(pageIndex)
-                .compose(applySchedulersObservable())
-                .map { page -> page.bitmap!! }
-                .subscribeAndDispose(
-                    { iv_page_fragment?.setImageBitmap(it)},
-                    { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
-                )
+//            renderer.rotatePage(pageIndex)
+//                .compose(applySchedulersObservable())
+//                .map { page -> page.bitmap!! }
+//                .subscribeAndDispose(
+//                    { iv_page_fragment?.setImageBitmap(it)},
+//                    { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
+//                )
         }
     }
 

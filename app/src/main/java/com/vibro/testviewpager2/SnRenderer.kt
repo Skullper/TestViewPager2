@@ -12,7 +12,6 @@ import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
 import io.reactivex.subjects.PublishSubject
-import kotlinx.android.parcel.Parcelize
 import java.io.File
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -26,10 +25,11 @@ import kotlin.math.roundToInt
  * which are rendering at that point
  */
 data class PageInfo(
-    val pdfFileData: PdfFileData,
+    val pdfFileData: PdfFileData?,
     val pageIndex: Int,
     val pageIndexOfTotal: Int,
-    val pageAttributes: PageAttributes)
+    val pageAttributes: PageAttributes? = null,
+    val pageChangesData: PageProvider.PageChangesData? = null)
 
 data class PdfFileData(val file: File, val pageCount: Int)
 
@@ -69,13 +69,12 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         override fun handleMessage(msg: Message) {
             val pageInfoToRender = msg.obj as PageToRender
             val pdfFileData = pageInfoToRender.pageInfo.pdfFileData
-            if (pdfFileData.file != currentFile.file) {
+            if (pdfFileData?.file != null && pdfFileData.file != currentFile.file) {
                 pdfRenderer.close()
                 initMainRenderer(pdfFileData)
             }
             val currentPage = pdfRenderer.openPage(pageInfoToRender.pageInfo.pageIndex)
-            val attributes = pageInfoToRender.pageInfo.pageAttributes
-            val pageAttributes = if (attributes.viewSize.first == 0) setPageAttributes(currentPage, pageInfoToRender) else attributes
+            val pageAttributes = pageInfoToRender.pageInfo.pageAttributes ?: setPageAttributes(currentPage, pageInfoToRender)
             val bitmap = renderPage(currentPage, pageAttributes)
 
             val renderedData = RenderedPageData(pageInfoToRender.pageInfo, pageInfoToRender.quality, bitmap, RenderingStatus.Complete)
@@ -123,17 +122,17 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         return updatedPage
     }
 
-    fun rotateAllPages(direction: RotateDirection): Observable<Unit> {
-        // TODO(08.04.2020)
-        return Observable.fromIterable(pages)
-            .map { pageInfo ->
-                val attributes = pageInfo.pageAttributes
-                val currentDirection = RotateDirection.Clockwise(attributes.rotateDirection.angle + direction.angle)
-
-//                    pageInfo.copy(pageAttributes = DefaultPageAttributes(rotateDirection = currentDirection))
-            }
-//                .map { pageInfo -> pages[pageInfo.pageIndexOfTotal] = pageInfo }
-    }
+//    fun rotateAllPages(direction: RotateDirection): Observable<Unit> {
+//        // TODO(08.04.2020)
+//        return Observable.fromIterable(pages)
+//            .map { pageInfo ->
+//                val attributes = pageInfo.pageAttributes
+//                val currentDirection = RotateDirection.Clockwise(attributes.rotateDirection.angle + direction.angle)
+//
+////                    pageInfo.copy(pageAttributes = DefaultPageAttributes(rotateDirection = currentDirection))
+//            }
+////                .map { pageInfo -> pages[pageInfo.pageIndexOfTotal] = pageInfo }
+//    }
 
     private fun initPages(files: List<File>): List<PageInfo> {
         var indexOfTotal = 0
@@ -147,7 +146,7 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
             val filePages = (0 until filePagesCount)
             filePages.forEach {
                 val index = indexOfTotal++
-                val info = PageInfo(fileData, it, index, FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), RotateDirection.Clockwise(0F), Matrix()))
+                val info = PageInfo(fileData, it, index)
                 pages.add(info)
             }
             if (!::currentFile.isInitialized && !::pdfRenderer.isInitialized) initMainRenderer(fileData)
@@ -169,12 +168,8 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
             val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
             postScale(initialScale, initialScale)
         }
-        val direction = pageInfoToRender.pageInfo.pageAttributes.rotateDirection
-        val newAttr = if (direction.angle == 0F) {
-            FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), matrix = matrix)
-        } else {
-            pageTransformer.rotatePage(FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), direction, matrix))
-        }
+        val direction = pageInfoToRender.pageInfo.pageAttributes?.rotateDirection
+        val newAttr = FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), matrix = matrix)
         pages[pageIndex] = pages[pageIndex].copy(pageAttributes = newAttr)
         return newAttr
     }
