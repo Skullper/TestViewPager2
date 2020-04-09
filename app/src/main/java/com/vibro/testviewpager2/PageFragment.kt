@@ -44,14 +44,13 @@ class PageFragment : Fragment() {
                 { error -> Log.e("TAGA", "Error: ${error.message}") }
             )
         iv_page_fragment?.setOnClickListener {
-//            renderer.rotatePage(pageIndex)
-//                .compose(applySchedulersObservable())
-//                .map { page -> page.bitmap!! }
-//                .subscribeAndDispose(
-//                    { iv_page_fragment?.setImageBitmap(it)},
-//                    { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
-//                )
-            startActivityForResult(activity?.getCroppingActivityIntent(), PageCroppingActivity.RC_CROPPING)
+            renderer.rotatePage(pageIndex, RotateDirection.Clockwise(90F))
+                .compose(applySchedulersObservable())
+                .subscribeAndDispose(
+                    { page -> iv_page_fragment?.setImageBitmap(page.bitmap)},
+                    { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
+                )
+//            startActivityForResult(activity?.getCroppingActivityIntent(), PageCroppingActivity.RC_CROPPING)
         }
     }
 

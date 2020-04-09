@@ -17,9 +17,7 @@ interface PageAttributes {
 data class FrameworkPageAttributes(override val viewSize: Pair<Int, Int>,
                                    override val pageSize: Pair<Int, Int>,
                                    override val rotateDirection: RotateDirection = RotateDirection.Clockwise(),
-                                   val matrix: Matrix
-) : PageAttributes {
-}
+                                   val matrix: Matrix) : PageAttributes
 
 data class NativePageAttributes(override val viewSize: Pair<Int, Int>,
                                 override val pageSize: Pair<Int, Int>,
@@ -28,7 +26,7 @@ data class NativePageAttributes(override val viewSize: Pair<Int, Int>,
 
 class PageTransformer {
 
-    fun rotatePage(page: PageAttributes): PageAttributes {
+    fun rotatePage(page: PageAttributes?): PageAttributes? {
         return if (page is FrameworkPageAttributes) performRotation(page) else TODO("Create page rotation for native approach")
     }
 
@@ -74,20 +72,20 @@ class PageTransformer {
     // TODO(06.04.2020) Other page modification methods
 
     private fun Matrix.getTranslatePoints() = FloatArray(9)
-        .apply { getValues(this) }
-        .let { Pair(it[Matrix.MTRANS_X], it[Matrix.MTRANS_Y]) }
+            .apply { getValues(this) }
+            .let { Pair(it[Matrix.MTRANS_X], it[Matrix.MTRANS_Y]) }
 
     private fun Matrix.getRotationAngle() = FloatArray(9)
-        .apply { getValues(this) }
-        .let { abs(round(atan2(it[Matrix.MSKEW_X], it[Matrix.MSCALE_X]) * (180 / Math.PI)).toFloat()) }
+            .apply { getValues(this) }
+            .let { abs(round(atan2(it[Matrix.MSKEW_X], it[Matrix.MSCALE_X]) * (180 / Math.PI)).toFloat()) }
 
     private fun Matrix.getScale() = FloatArray(9)
-        .apply { getValues(this) }
-        .let { sqrt(it[Matrix.MSCALE_X] * it[Matrix.MSCALE_X] + it[Matrix.MSKEW_X] * it[Matrix.MSKEW_X]) }
+            .apply { getValues(this) }
+            .let { sqrt(it[Matrix.MSCALE_X] * it[Matrix.MSCALE_X] + it[Matrix.MSKEW_X] * it[Matrix.MSKEW_X]) }
 
 }
 
 fun Matrix.isPortrait() = FloatArray(9)
-    .apply { getValues(this) }
-    .let { -round(atan2(it[Matrix.MSKEW_X], it[Matrix.MSCALE_X]) * (180 / Math.PI)).toFloat() }
-    .let { angle -> (angle / 90F) % 2 == 0F }
+        .apply { getValues(this) }
+        .let { -round(atan2(it[Matrix.MSKEW_X], it[Matrix.MSCALE_X]) * (180 / Math.PI)).toFloat() }
+        .let { angle -> (angle / 90F) % 2 == 0F }

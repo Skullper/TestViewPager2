@@ -25,12 +25,11 @@ import kotlin.math.roundToInt
  * @param pageIndexOfTotal index of the page displayed on the screen. This page number refers to the index in the list of pages of all documents
  * which are rendering at that point
  */
-data class PageInfo(
-    val pdfFileData: PdfFileData?,
-    val pageIndex: Int,
-    val pageIndexOfTotal: Int,
-    val pageAttributes: PageAttributes? = null,
-    val pageChangesData: PageChangesData? = null)
+data class PageInfo(val pdfFileData: PdfFileData?,
+                    val pageIndex: Int,
+                    val pageIndexOfTotal: Int,
+                    val pageAttributes: PageAttributes? = null,
+                    val pageChangesData: PageChangesData? = null)
 
 data class PageChangesData(val uri: Uri)
 
@@ -41,12 +40,12 @@ data class PageToRender(val pageInfo: PageInfo, val quality: SnRenderer.Quality 
 data class RenderedPageData(val pageInfo: PageInfo,
                             val quality: SnRenderer.Quality?,
                             val bitmap: Bitmap? = null,
-                            val status:RenderingStatus)
+                            val status: RenderingStatus)
 
 sealed class RenderingStatus {
-    object Wait:RenderingStatus()
-    object Rendering:RenderingStatus()
-    object Complete:RenderingStatus()
+    object Wait : RenderingStatus()
+    object Rendering : RenderingStatus()
+    object Complete : RenderingStatus()
 }
 
 sealed class RotateDirection(open val angle: Float) {
@@ -113,13 +112,14 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
 
     fun waitRender(position: Int, quality: Quality): Observable<RenderedPageData> {
         return renderingResultPublisher
-            .filter { it.pageInfo.pageIndexOfTotal == position }
-            .filter { it.quality == quality }
+                .filter { it.pageInfo.pageIndexOfTotal == position }
+                .filter { it.quality == quality }
     }
 
-    fun rotatePage(index: Int): PageInfo {
+    fun rotatePage(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): PageInfo {
         val originalPage = pages[index]
-        val result = pageTransformer.rotatePage(originalPage.pageAttributes as FrameworkPageAttributes)
+        val pageAttributes = originalPage.pageAttributes as? FrameworkPageAttributes
+        val result = pageTransformer.rotatePage(pageAttributes?.copy(rotateDirection = direction))
         val updatedPage = originalPage.copy(pageAttributes = result)
         updatePage(updatedPage)
         return updatedPage
@@ -140,8 +140,7 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
     private fun initPages(files: List<File>): List<PageInfo> {
         var indexOfTotal = 0
         files.forEach { file ->
-            val parcelFileDescriptor =
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val localRenderer = PdfRenderer(parcelFileDescriptor)
             val filePagesCount = localRenderer.pageCount
             localRenderer.close()
@@ -159,8 +158,7 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
 
     private fun initMainRenderer(fileData: PdfFileData) {
         currentFile = fileData
-        val parcelFileDescriptor =
-            ParcelFileDescriptor.open(currentFile.file, ParcelFileDescriptor.MODE_READ_ONLY)
+        val parcelFileDescriptor = ParcelFileDescriptor.open(currentFile.file, ParcelFileDescriptor.MODE_READ_ONLY)
         pdfRenderer = PdfRenderer(parcelFileDescriptor)
     }
 
@@ -171,7 +169,6 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
             val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
             postScale(initialScale, initialScale)
         }
-        val direction = pageInfoToRender.pageInfo.pageAttributes?.rotateDirection
         val newAttr = FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), matrix = matrix)
         pages[pageIndex] = pages[pageIndex].copy(pageAttributes = newAttr)
         return newAttr
@@ -236,36 +233,36 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
 fun <T> applySchedulersObservable(): (Observable<T>) -> Observable<T> {
     return { o: Observable<T> ->
         o.subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
+                .observeOn(AndroidSchedulers.mainThread())
     }
 }
 
 fun <T> applySchedulersSingle(): (Single<T>) -> Single<T> {
     return { o: Single<T> ->
         o.subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
+                .observeOn(AndroidSchedulers.mainThread())
     }
 }
 
 fun <T> Observable<T>.subscribeAndDispose(
-    onNext: (T) -> Unit = {},
-    onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) },
-    onComplete: () -> Unit = {}
+        onNext: (T) -> Unit = {},
+        onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) },
+        onComplete: () -> Unit = {}
 ): Disposable {
     var d: Disposable? = null
     d = this.doFinally {
         d?.dispose()
     }
-        .subscribe(onNext, onError, onComplete)
+            .subscribe(onNext, onError, onComplete)
     return d
 }
 
 fun <T> Single<T>.subscribeAndDispose(
-    onNext: (T) -> Unit = {},
-    onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) }
+        onNext: (T) -> Unit = {},
+        onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) }
 ): Disposable {
     var d: Disposable? = null
     d = this.doFinally { d?.dispose() }
-        .subscribe(onNext, onError)
+            .subscribe(onNext, onError)
     return d
 }

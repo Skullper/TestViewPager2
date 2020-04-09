@@ -1,9 +1,11 @@
 package com.vibro.testviewpager2
 
 import android.content.Context
+import android.graphics.Matrix
 import android.net.Uri
 import android.util.Log
 import com.bumptech.glide.Glide
+import com.vibro.testviewpager2.utils.RotatePageTransformer
 import io.reactivex.Observable
 import java.io.File
 import java.util.*
@@ -33,12 +35,13 @@ class PdfRenderingEngine(private val context: Context,
     override fun getPages() = if (currentPages.isEmpty()) originalPages else currentPages
 
     override fun providePage(index: Int, quality: SnRenderer.Quality): Observable<RenderedPageData> {
-        if (!pageIsNewOrHasChanges(index)) {
-            return snRenderer.renderPage(index, quality)
+        return if (!pageIsNewOrHasChanges(index)) {
+            snRenderer.renderPage(index, quality)
         } else {
-            return Observable.fromCallable {
+            Observable.fromCallable {
                 val currentPage = currentPages[index]
-                val b = Glide.with(context).asBitmap().load(currentPage.pageChangesData?.uri).submit().get()
+                val transformer = RotatePageTransformer(currentPage.pageAttributes as? FrameworkPageAttributes)
+                val b = Glide.with(context).asBitmap().load(currentPage.pageChangesData?.uri).transform(transformer).submit().get()
                 RenderedPageData(currentPage, quality, b, RenderingStatus.Complete)
             }
         }
@@ -47,7 +50,8 @@ class PdfRenderingEngine(private val context: Context,
     fun addPage(uri: Uri): Observable<Boolean> {
         return Observable.fromCallable {
             val pageIndex = currentPages.lastIndex + 1
-            val pageInfo = PageInfo(null, pageIndex, pageIndex, null, PageChangesData(uri))
+            val attributes = FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), RotateDirection.Clockwise(0F), Matrix())
+            val pageInfo = PageInfo(null, pageIndex, pageIndex, attributes, PageChangesData(uri))
             currentPages.add(pageInfo)
             hasChanges = true
             hasChanges
@@ -73,11 +77,34 @@ class PdfRenderingEngine(private val context: Context,
                 }
     }
 
-    //    fun rotatePage(index: Int): Observable<RenderedPageData> {
-//        val updatedPage = snRenderer.rotatePage(index)
-//        pagesCache.updatePageInCache(RenderedPageData(updatedPage, SnRenderer.Quality.Normal, null, RenderingStatus.Wait))
-//        return pagesCache.getCachedPage(updatedPage)
-//    }
+    fun rotatePage(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
+        return if (!pageIsNewOrHasChanges(index)) {
+            rotatePageFromRenderer(index, direction)
+        } else {
+            rotatePageFromUri(index, direction)
+        }
+    }
+
+    private fun rotatePageFromUri(index: Int, direction: RotateDirection): Observable<RenderedPageData> {
+        return Observable.fromCallable {
+            val currentPage = currentPages[index]
+            val attributes = (currentPage.pageAttributes as? FrameworkPageAttributes)?.copy(rotateDirection = direction)
+            attributes?.matrix?.preRotate(direction.angle)
+            val updatePage = currentPage.copy(pageAttributes = attributes)
+            val transformer = RotatePageTransformer(attributes)
+            val b = Glide.with(context).asBitmap().load(currentPage.pageChangesData?.uri).transform(transformer).submit().get()
+            currentPages[index] = updatePage
+            RenderedPageData(currentPages[index], SnRenderer.Quality.Normal, b, RenderingStatus.Complete)
+        }
+    }
+
+    private fun rotatePageFromRenderer(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
+        return Observable.fromCallable {
+            val rotatedPage = snRenderer.rotatePage(index, direction)
+            val renderedPageData = RenderedPageData(rotatedPage, SnRenderer.Quality.Normal, null, RenderingStatus.Wait)
+            pagesCache.updatePageInCache(renderedPageData)
+        }.flatMap { getPage(index) }
+    }
 //
 //    fun rotateAllPages(index: Int): Observable<RenderedPageData> {
 //        return Observable.fromCallable(pagesCache::clearCache)
@@ -150,8 +177,7 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
     }
 
     private fun fillLeftSide(currentIndex: Int, newCache: LinkedList<RenderedPageData>) {
-        val firstInd =
-                if (currentIndex - CACHE_PAGES_SIDE_LIMIT > 0) currentIndex - CACHE_PAGES_SIDE_LIMIT else 0
+        val firstInd = if (currentIndex - CACHE_PAGES_SIDE_LIMIT > 0) currentIndex - CACHE_PAGES_SIDE_LIMIT else 0
         (currentIndex downTo firstInd).forEach { ind -> newCache.addFirst(getPage(ind)) }
     }
 
