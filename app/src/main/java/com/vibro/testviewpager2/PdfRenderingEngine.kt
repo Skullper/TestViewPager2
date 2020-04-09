@@ -1,5 +1,8 @@
 package com.vibro.testviewpager2
 
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.graphics.RectF
 import android.util.Log
 import io.reactivex.Observable
 import java.io.File
@@ -16,7 +19,6 @@ class PdfRenderingEngine(private val snRenderer: SnRenderer,
     fun open(files: List<File>): List<PageInfo> {
         snRenderer.open(files)
             .run { pages.addAll(this) }
-//        pagesCache.initCache()
         return pages
     }
 
@@ -39,6 +41,18 @@ class PdfRenderingEngine(private val snRenderer: SnRenderer,
     fun rotateAllPages(index: Int): Observable<RenderedPageData> {
         return Observable.fromCallable(pagesCache::clearCache)
             .flatMap { snRenderer.rotateAllPages(RotateDirection.Clockwise()) }
+            .flatMap { pagesCache.getCachedPage(snRenderer.getPages()[index]) }
+    }
+
+    fun updatePage(index: Int, rect: RectF): Observable<RenderedPageData> {
+        val pageInfo = snRenderer.getPages()[index]
+        val attributes = (pageInfo.pageAttributes as FrameworkPageAttributes)
+        return Observable.fromCallable {
+            snRenderer.updatePage(pageInfo.copy(pageAttributes = attributes))
+        }
+            .map {
+                pagesCache.updatePageInCache(RenderedPageData(pageInfo, SnRenderer.Quality.Normal, null, RenderingStatus.Wait))
+            }
             .flatMap { pagesCache.getCachedPage(snRenderer.getPages()[index]) }
     }
 

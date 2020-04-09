@@ -1,14 +1,18 @@
 package com.vibro.testviewpager2
 
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import com.theartofdev.edmodo.cropper.CropImageActivity
+import com.vibro.testviewpager2.crop.CroppingDataHolder
+import com.vibro.testviewpager2.crop.PageCroppingActivity
 import kotlinx.android.synthetic.main.fragment_page.*
 import org.koin.android.ext.android.inject
-import org.koin.core.inject
 
 class PageFragment : Fragment() {
 
@@ -22,14 +26,17 @@ class PageFragment : Fragment() {
         return inflater.inflate(R.layout.fragment_page, container)
     }
 
+    private var pageIndex: Int = 0
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val pageIndex = arguments?.getInt(ARG_PAGE_INDEX) ?: 0
+        pageIndex = arguments?.getInt(ARG_PAGE_INDEX) ?: 0
         position.setText(pageIndex.toString())
         renderer.getPage(pageIndex)
             .compose(applySchedulersObservable())
             .subscribeAndDispose(
                 { bitmap ->
+                    CroppingDataHolder.bitmap = bitmap.bitmap
                     iv_page_fragment?.setImageBitmap(bitmap.bitmap)
                     progressBar?.visibility = View.GONE
                 },
@@ -43,6 +50,22 @@ class PageFragment : Fragment() {
                     { iv_page_fragment?.setImageBitmap(it)},
                     { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
                 )
+//            startActivityForResult(activity?.getCroppingActivityIntent(), PageCroppingActivity.RC_CROPPING)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == Activity.RESULT_OK) {
+            when (requestCode) {
+                PageCroppingActivity.RC_CROPPING -> {
+//                    renderer.updatePage(pageIndex)
+//                        .subscribeAndDispose(
+//                            { renderedPageData -> iv_page_fragment?.setImageBitmap(renderedPageData.bitmap) },
+//                            { Log.e("CROPPING", "Cropping error: ${it.message}") }
+//                        )
+                }
+            }
         }
     }
 
