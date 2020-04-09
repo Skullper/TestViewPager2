@@ -81,6 +81,11 @@ class EditorView : FrameLayout, KoinComponent {
 
     }
 
+    fun rearrange(indexFrom: Int, indexTo: Int): Observable<Unit> {
+        return engine.rearrange(indexFrom, indexTo)
+            .doOnNext { viewPager.adapter?.notifyDataSetChanged() }
+    }
+
     fun setPage(index: Int) {
         viewPager.setCurrentItem(index, false)
     }
@@ -93,6 +98,11 @@ class EditorView : FrameLayout, KoinComponent {
         override fun createFragment(position: Int): Fragment {
             return PageFragment.newInstance(position)
         }
+
+        override fun getItemId(position: Int): Long {
+            return engine.getPages()[position].id
+        }
+
 
     }
 

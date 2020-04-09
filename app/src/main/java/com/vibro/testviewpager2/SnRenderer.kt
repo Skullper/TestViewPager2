@@ -14,6 +14,7 @@ import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
 import io.reactivex.subjects.PublishSubject
 import java.io.File
+import java.util.*
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -30,9 +31,10 @@ data class PageInfo(
     val pageIndex: Int,
     val pageIndexOfTotal: Int,
     val pageAttributes: PageAttributes? = null,
-    val pageChangesData: PageChangesData? = null)
+    val pageChangesData: PageChangesData? = null,
+    val id:Long = UUID.randomUUID().mostSignificantBits)
 
-data class PageChangesData(val uri: Uri)
+data class PageChangesData(val storedPage: Uri? = null)
 
 data class PdfFileData(val file: File, val pageCount: Int)
 
@@ -86,7 +88,8 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
     }
 
     fun updatePage(pageInfo: PageInfo) {
-        pages[pageInfo.pageIndexOfTotal] = pageInfo
+        val i = pages.indexOfFirst { it.id == pageInfo.id }
+        pages[i]
     }
 
     fun open(files: List<File>): List<PageInfo> {
@@ -97,24 +100,18 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         renderingThread.quitSafely()
     }
 
-    fun getPages(): List<PageInfo> = pages
-
-    fun getCurrentFile(): PdfFileData {
-        return currentFile
-    }
-
-    fun renderPage(index: Int, quality: Quality): Observable<RenderedPageData> {
-        val pageInfo = pages[index]
+    fun renderPage(pageInfo: PageInfo, quality: Quality): Observable<RenderedPageData> {
         val p = PageToRender(pageInfo, quality)
         val message = Message().apply { obj = p }
         renderingHandler.sendMessage(message)
-        return waitRender(pageInfo.pageIndexOfTotal, quality)
+        return waitRender(pageInfo.id, quality)
     }
 
-    fun waitRender(position: Int, quality: Quality): Observable<RenderedPageData> {
+    fun waitRender(id:Long, quality: Quality): Observable<RenderedPageData> {
         return renderingResultPublisher
-            .filter { it.pageInfo.pageIndexOfTotal == position }
+            .filter { it.pageInfo.id == id }
             .filter { it.quality == quality }
+            .take(1)
     }
 
     fun rotatePage(index: Int): PageInfo {
@@ -166,14 +163,14 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
 
     private fun setPageAttributes(currentPage: PdfRenderer.Page, pageInfoToRender: PageToRender): PageAttributes? {
         val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
-        val pageIndex = pages.indexOf(pageInfoToRender.pageInfo)
+        val pageInfo = pageInfoToRender.pageInfo
         val matrix = Matrix().apply {
             val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
             postScale(initialScale, initialScale)
         }
-        val direction = pageInfoToRender.pageInfo.pageAttributes?.rotateDirection
+        val direction = pageInfo.pageAttributes?.rotateDirection
         val newAttr = FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), matrix = matrix)
-        pages[pageIndex] = pages[pageIndex].copy(pageAttributes = newAttr)
+        updatePage(pageInfo.copy(pageAttributes = newAttr))
         return newAttr
     }
 

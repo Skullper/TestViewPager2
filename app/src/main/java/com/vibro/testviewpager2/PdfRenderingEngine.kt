@@ -10,15 +10,17 @@ import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.floor
 
-class PdfRenderingEngine(private val context: Context,
-                         private val snRenderer: SnRenderer):RenderPagesProvider {
+class PdfRenderingEngine(private val context: Context, private val snRenderer: SnRenderer) : RenderPagesProvider {
 
     private val TAG = this.javaClass.simpleName
 
     private val pagesCache = PagesCache(this)
 
     private val originalPages: MutableList<PageInfo> = mutableListOf()
-    private val currentPages: MutableList<PageInfo> by lazy { ArrayList<PageInfo>(originalPages) }
+    private val currentPages: MutableList<PageInfo> by lazy {
+        hasChanges = true
+        ArrayList<PageInfo>(originalPages)
+    }
     private var hasChanges = false
 
     fun open(files: List<File>): List<PageInfo> {
@@ -30,37 +32,45 @@ class PdfRenderingEngine(private val context: Context,
         pagesCache.clearCache()
     }
 
-    override fun getPages() = if (currentPages.isEmpty()) originalPages else currentPages
+    override fun getPages() = if (!hasChanges) originalPages else currentPages
 
     override fun providePage(index: Int, quality: SnRenderer.Quality): Observable<RenderedPageData> {
         if (!pageIsNewOrHasChanges(index)) {
-            return snRenderer.renderPage(index, quality)
+            val pageInfo = getPages()[index]
+            return snRenderer.renderPage(pageInfo, quality)
         } else {
             return Observable.fromCallable {
                 val currentPage = currentPages[index]
                 val b =
-                    Glide.with(context).asBitmap().load(currentPage.pageChangesData?.uri).submit()
+                    Glide.with(context).asBitmap().load(currentPage.pageChangesData?.storedPage).submit()
                         .get()
                 RenderedPageData(currentPage, quality, b, RenderingStatus.Complete)
             }
         }
     }
 
-    fun addPage(uri: Uri):Observable<Boolean> {
+    fun addPage(uri: Uri): Observable<Boolean> {
         return Observable.fromCallable {
             val pageIndex = currentPages.lastIndex + 1
-            val pageInfo = PageInfo(null, pageIndex, pageIndex, null, PageChangesData(uri))
+            val pageInfo = PageInfo(null, -1, pageIndex, null, PageChangesData(uri))
             currentPages.add(pageInfo)
-            hasChanges = true
-            hasChanges
+            true
+        }
+    }
+
+    fun rearrange(indexFrom: Int, indexTo: Int): Observable<Unit> {
+        return Observable.fromCallable {
+            val pageInfoToRearrange = currentPages.removeAt(indexFrom)
+            currentPages.add(indexTo, pageInfoToRearrange)
+            val mapped = currentPages.mapIndexed { i, p -> p.copy(pageIndexOfTotal = i) }
+            currentPages.clear()
+            currentPages.addAll(mapped)
+            pagesCache.clearCache()
         }
     }
 
     fun pageIsNewOrHasChanges(index: Int): Boolean {
-        return when {
-            currentPages.isEmpty() -> false
-            else -> currentPages[index].pageChangesData != null
-        }
+        return currentPages[index].pageChangesData != null
     }
 
     fun getPage(index: Int): Observable<RenderedPageData> {
@@ -70,7 +80,7 @@ class PdfRenderingEngine(private val context: Context,
                 if (cachedPage.bitmap != null) {
                     Observable.just(cachedPage)
                 } else {
-                    snRenderer.waitRender(index, SnRenderer.Quality.Normal)
+                    snRenderer.waitRender(cachedPage.pageInfo.id, SnRenderer.Quality.Normal)
                 }
             }
     }
@@ -170,6 +180,6 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
 }
 
 interface RenderPagesProvider {
-    fun getPages():List<PageInfo>
+    fun getPages(): List<PageInfo>
     fun providePage(index: Int, quality: SnRenderer.Quality): Observable<RenderedPageData>
 }

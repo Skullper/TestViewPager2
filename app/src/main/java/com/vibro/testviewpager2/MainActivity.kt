@@ -35,6 +35,10 @@ class MainActivity : AppCompatActivity() {
             openPicker()
 //            editorView.openPage()
         }
+
+        btn_rearrange.setOnClickListener {
+            editorView.rearrange(0,5).subscribeAndDispose()
+        }
     }
 
     fun openPicker() {
