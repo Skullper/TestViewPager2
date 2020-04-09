@@ -1,6 +1,7 @@
 package com.vibro.testviewpager2
 
 import android.content.Context
+import android.net.Uri
 import android.util.AttributeSet
 import android.view.View
 import android.widget.FrameLayout
@@ -19,9 +20,7 @@ import java.io.File
 
 class EditorView : FrameLayout, KoinComponent {
 
-    private val renderer: PdfRenderingEngine by inject()
-
-    private val pages: MutableList<PageInfo> = mutableListOf()
+    private val engine: PdfRenderingEngine by inject()
 
     constructor(context: Context) : super(context) {
         initView(context)
@@ -49,31 +48,21 @@ class EditorView : FrameLayout, KoinComponent {
     fun show(files: List<File>, fragmentActivity: FragmentActivity): Observable<Unit> {
         if (files.isEmpty()) throw IllegalArgumentException("List with files is empty")
 
+
         return Observable.just(files)
             .map {
-                pages.addAll(renderer.open(it))
+                engine.open(it)
                 Unit
             }
             .observeOn(AndroidSchedulers.mainThread())
             .doFinally {
-                val adapter = PageAdapter(fragmentActivity, pages)
+                val adapter = PageAdapter(fragmentActivity)
                 viewPager.adapter = adapter
             }
     }
 
-    fun openPage() {
-        viewPager.setCurrentItem(10, false)
-//        if (count % 2 > 0) viewPager.setCurrentItem(17)
-//        else viewPager.setCurrentItem(8)
-//        count++
-    }
-
     fun close() {
-        renderer.close()
-    }
-
-    fun getCurrentPage(): PageInfo {
-        return pages[viewPager.currentItem]
+        engine.close()
     }
 
     private fun initView(
@@ -83,15 +72,28 @@ class EditorView : FrameLayout, KoinComponent {
         View.inflate(context, R.layout.view_editor, this)
         viewPager?.setPageTransformer(MarginPageTransformer(50))
     }
-}
 
-class PageAdapter(fragmentActivity: FragmentActivity, private val pages: List<PageInfo>) :
-    FragmentStateAdapter(fragmentActivity) {
+    fun addPage(imageUri: Uri): Observable<Boolean> {
+        return engine.addPage(imageUri).doOnNext {
+            viewPager.adapter?.notifyDataSetChanged()
+            setPage(engine.getPages().lastIndex)
+        }
 
-    override fun getItemCount(): Int = pages.size
+    }
 
-    override fun createFragment(position: Int): Fragment {
-        return PageFragment.newInstance(position)
+    fun setPage(index: Int) {
+        viewPager.setCurrentItem(index, false)
+    }
+
+    inner class PageAdapter(fragmentActivity: FragmentActivity) :
+        FragmentStateAdapter(fragmentActivity) {
+
+        override fun getItemCount(): Int = engine.getPages().size
+
+        override fun createFragment(position: Int): Fragment {
+            return PageFragment.newInstance(position)
+        }
+
     }
 
 }

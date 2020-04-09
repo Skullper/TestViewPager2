@@ -6,6 +6,5 @@ val myModule = module {
 
     factory { PageTransformer() }
     single { SnRenderer(pageTransformer = get()) }
-    single { PagesCache(get()) }
     single { PdfRenderingEngine(get(), get()) }
 }

@@ -1,64 +1,95 @@
 package com.vibro.testviewpager2
 
-import android.graphics.Bitmap
-import android.graphics.Matrix
-import android.graphics.RectF
+import android.content.Context
+import android.net.Uri
 import android.util.Log
+import com.bumptech.glide.Glide
 import io.reactivex.Observable
 import java.io.File
 import java.util.*
+import kotlin.collections.ArrayList
 import kotlin.math.floor
 
-class PdfRenderingEngine(private val snRenderer: SnRenderer,
-                         private val pagesCache: PagesCache) {
+class PdfRenderingEngine(private val context: Context,
+                         private val snRenderer: SnRenderer):RenderPagesProvider {
 
     private val TAG = this.javaClass.simpleName
 
-    private val pages: MutableList<PageInfo> = mutableListOf()
+    private val pagesCache = PagesCache(this)
+
+    private val originalPages: MutableList<PageInfo> = mutableListOf()
+    private val currentPages: MutableList<PageInfo> by lazy { ArrayList<PageInfo>(originalPages) }
+    private var hasChanges = false
 
     fun open(files: List<File>): List<PageInfo> {
-        snRenderer.open(files)
-            .run { pages.addAll(this) }
-        return pages
+        return snRenderer.open(files).apply { originalPages.addAll(this) }
     }
 
     fun close() {
         snRenderer.close()
+        pagesCache.clearCache()
     }
 
-    fun getPage(position: Int): Observable<RenderedPageData> {
-        Log.d(TAG, "get page $position")
-        val pageToRender = pages[position]
-        return pagesCache.getCachedPage(pageToRender)
-    }
+    override fun getPages() = if (currentPages.isEmpty()) originalPages else currentPages
 
-    fun rotatePage(index: Int): Observable<RenderedPageData> {
-        val updatedPage = snRenderer.rotatePage(index)
-        pagesCache.updatePageInCache(RenderedPageData(updatedPage, SnRenderer.Quality.Normal, null, RenderingStatus.Wait))
-        return pagesCache.getCachedPage(updatedPage)
-    }
-
-    fun rotateAllPages(index: Int): Observable<RenderedPageData> {
-        return Observable.fromCallable(pagesCache::clearCache)
-            .flatMap { snRenderer.rotateAllPages(RotateDirection.Clockwise()) }
-            .flatMap { pagesCache.getCachedPage(snRenderer.getPages()[index]) }
-    }
-
-    fun updatePage(index: Int, rect: RectF): Observable<RenderedPageData> {
-        val pageInfo = snRenderer.getPages()[index]
-        val attributes = (pageInfo.pageAttributes as FrameworkPageAttributes)
-        return Observable.fromCallable {
-            snRenderer.updatePage(pageInfo.copy(pageAttributes = attributes))
-        }
-            .map {
-                pagesCache.updatePageInCache(RenderedPageData(pageInfo, SnRenderer.Quality.Normal, null, RenderingStatus.Wait))
+    override fun providePage(index: Int, quality: SnRenderer.Quality): Observable<RenderedPageData> {
+        if (!pageIsNewOrHasChanges(index)) {
+            return snRenderer.renderPage(index, quality)
+        } else {
+            return Observable.fromCallable {
+                val currentPage = currentPages[index]
+                val b =
+                    Glide.with(context).asBitmap().load(currentPage.pageChangesData?.uri).submit()
+                        .get()
+                RenderedPageData(currentPage, quality, b, RenderingStatus.Complete)
             }
-            .flatMap { pagesCache.getCachedPage(snRenderer.getPages()[index]) }
+        }
     }
+
+    fun addPage(uri: Uri):Observable<Boolean> {
+        return Observable.fromCallable {
+            val pageIndex = currentPages.lastIndex + 1
+            val pageInfo = PageInfo(null, pageIndex, pageIndex, null, PageChangesData(uri))
+            currentPages.add(pageInfo)
+            hasChanges = true
+            hasChanges
+        }
+    }
+
+    fun pageIsNewOrHasChanges(index: Int): Boolean {
+        return when {
+            currentPages.isEmpty() -> false
+            else -> currentPages[index].pageChangesData != null
+        }
+    }
+
+    fun getPage(index: Int): Observable<RenderedPageData> {
+        Log.d(TAG, "get page $index")
+        return pagesCache.getCachedPage(index)
+            .flatMap { cachedPage: RenderedPageData ->
+                if (cachedPage.bitmap != null) {
+                    Observable.just(cachedPage)
+                } else {
+                    snRenderer.waitRender(index, SnRenderer.Quality.Normal)
+                }
+            }
+    }
+
+    //    fun rotatePage(index: Int): Observable<RenderedPageData> {
+//        val updatedPage = snRenderer.rotatePage(index)
+//        pagesCache.updatePageInCache(RenderedPageData(updatedPage, SnRenderer.Quality.Normal, null, RenderingStatus.Wait))
+//        return pagesCache.getCachedPage(updatedPage)
+//    }
+//
+//    fun rotateAllPages(index: Int): Observable<RenderedPageData> {
+//        return Observable.fromCallable(pagesCache::clearCache)
+//            .flatMap { snRenderer.rotateAllPages(RotateDirection.Clockwise()) }
+//            .flatMap { pagesCache.getCachedPage(snRenderer.getPages()[index]) }
+//    }
 
 }
 
-class PagesCache(private val snRenderer: SnRenderer) {
+class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
 
     private val TAG = this.javaClass.simpleName
 
@@ -68,22 +99,16 @@ class PagesCache(private val snRenderer: SnRenderer) {
 
     private var cache: LinkedList<RenderedPageData> = LinkedList()
 
-    fun getCachedPage(currentPageToRender: PageInfo): Observable<RenderedPageData> {
+    fun getCachedPage(index: Int): Observable<RenderedPageData> {
         return Observable
-            .fromCallable { alignCache(currentPageToRender) }
-            .map { cache.first { it.pageInfo.pageIndexOfTotal == currentPageToRender.pageIndexOfTotal } }
-            .flatMap { page ->
-                if (page.bitmap != null) {
-                    Observable.just(page)
-                } else {
-                    snRenderer.waitRender(page.pageInfo.pageIndexOfTotal, SnRenderer.Quality.Normal)
-                }
-            }
+            .fromCallable { alignCache(index) }
+            .map { cache.first { it.pageInfo.pageIndexOfTotal == index } }
     }
 
     fun updatePageInCache(renderData: RenderedPageData) {
         Log.d("TAG Cache", "find in cache ${renderData.pageInfo.pageIndexOfTotal}")
-        val i = cache.indexOfFirst { it.pageInfo.pageIndexOfTotal == renderData.pageInfo.pageIndexOfTotal }
+        val i =
+            cache.indexOfFirst { it.pageInfo.pageIndexOfTotal == renderData.pageInfo.pageIndexOfTotal }
         if (i != -1) cache[i] = renderData
     }
 
@@ -91,12 +116,11 @@ class PagesCache(private val snRenderer: SnRenderer) {
         cache.clear()
     }
 
-    private fun alignCache(currentPageToRender: PageInfo) {
-        val i = currentPageToRender.pageIndexOfTotal
+    private fun alignCache(index: Int) {
         val newCache = LinkedList<RenderedPageData>()
 
-        fillRightSide(i, newCache)
-        fillLeftSide(i, newCache)
+        fillRightSide(index, newCache)
+        fillLeftSide(index, newCache)
 
         if (newCache.isNotEmpty()) {
             cache = newCache
@@ -105,7 +129,7 @@ class PagesCache(private val snRenderer: SnRenderer) {
                 .doOnNext { updatePageInCache(it.copy(status = RenderingStatus.Rendering)) }
                 .map { it.pageInfo.pageIndexOfTotal }
                 .doOnNext { Log.d(TAG, "start rendering ${it}") }
-                .flatMap { snRenderer.renderPage(it, SnRenderer.Quality.Normal) }
+                .flatMap { renderPagesProvider.providePage(it, SnRenderer.Quality.Normal) }
                 .doOnNext { updatePageInCache(it) }
                 .subscribeAndDispose()
         }
@@ -116,7 +140,7 @@ class PagesCache(private val snRenderer: SnRenderer) {
     }
 
     private fun fillRightSide(currentIndex: Int, newCache: LinkedList<RenderedPageData>) {
-        val pages = snRenderer.getPages()
+        val pages = renderPagesProvider.getPages()
         val lastIndex = if (currentIndex < CACHE_BUFFER - CACHE_PAGES_SIDE_LIMIT) {
             CACHE_BUFFER
         } else if (currentIndex + CACHE_PAGES_SIDE_LIMIT < pages.lastIndex) {
@@ -128,12 +152,13 @@ class PagesCache(private val snRenderer: SnRenderer) {
     }
 
     private fun fillLeftSide(currentIndex: Int, newCache: LinkedList<RenderedPageData>) {
-        val firstInd = if (currentIndex - CACHE_PAGES_SIDE_LIMIT > 0) currentIndex - CACHE_PAGES_SIDE_LIMIT else 0
+        val firstInd =
+            if (currentIndex - CACHE_PAGES_SIDE_LIMIT > 0) currentIndex - CACHE_PAGES_SIDE_LIMIT else 0
         (currentIndex downTo firstInd).forEach { ind -> newCache.addFirst(getPage(ind)) }
     }
 
     private fun getPage(i: Int): RenderedPageData {
-        val pages = snRenderer.getPages()
+        val pages = renderPagesProvider.getPages()
         val p = cache.firstOrNull { it.pageInfo.pageIndexOfTotal == i }
         return p ?: RenderedPageData(
             pages[i],
@@ -142,4 +167,9 @@ class PagesCache(private val snRenderer: SnRenderer) {
         )
     }
 
+}
+
+interface RenderPagesProvider {
+    fun getPages():List<PageInfo>
+    fun providePage(index: Int, quality: SnRenderer.Quality): Observable<RenderedPageData>
 }

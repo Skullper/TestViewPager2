@@ -8,16 +8,16 @@
         android:id="@+id/editorView"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintBottom_toTopOf="@+id/btn_some"
+        app:layout_constraintBottom_toTopOf="@+id/btn_add_page"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
     <Button
-        android:id="@+id/btn_some"
+        android:id="@+id/btn_add_page"
         android:layout_width="0dp"
-        android:layout_height="35dp"
-        android:text="SOME BTN"
+        android:layout_height="55dp"
+        android:text="add page"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
