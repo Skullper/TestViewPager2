@@ -9,7 +9,6 @@ import android.os.Environment
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.android.synthetic.main.activity_main.*
-import org.koin.android.ext.android.inject
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
@@ -37,7 +36,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         btn_rearrange.setOnClickListener {
-            editorView.rearrange(0,5).subscribeAndDispose()
+            editorView.rearrangePage(0, 5).subscribeAndDispose()
         }
     }
 
@@ -47,6 +46,10 @@ class MainActivity : AppCompatActivity() {
         startActivityForResult(photoPickerIntent, RC_GET_IMG)
     }
 
+    fun removePage(pageIndex: Int) {
+        editorView.removePage(pageIndex)
+            .subscribeAndDispose()
+    }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)

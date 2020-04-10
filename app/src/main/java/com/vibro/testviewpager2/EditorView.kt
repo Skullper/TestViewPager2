@@ -70,7 +70,6 @@ class EditorView : FrameLayout, KoinComponent {
         attrs: AttributeSet? = null, @AttrRes defStyleAttr: Int = 0, @StyleRes defStyleRes: Int = 0
     ) {
         View.inflate(context, R.layout.view_editor, this)
-        viewPager?.setPageTransformer(MarginPageTransformer(50))
     }
 
     fun addPage(imageUri: Uri): Observable<Boolean> {
@@ -81,9 +80,17 @@ class EditorView : FrameLayout, KoinComponent {
 
     }
 
-    fun rearrange(indexFrom: Int, indexTo: Int): Observable<Unit> {
-        return engine.rearrange(indexFrom, indexTo)
+    fun rearrangePage(indexFrom: Int, indexTo: Int): Observable<Unit> {
+        return engine.rearrangePage(indexFrom, indexTo)
             .doOnNext { viewPager.adapter?.notifyDataSetChanged() }
+    }
+
+    fun removePage(index: Int): Observable<Unit> {
+        return engine.removePage(index)
+            .doOnNext {
+                viewPager.adapter?.notifyItemRemoved(index)
+            }
+
     }
 
     fun setPage(index: Int) {

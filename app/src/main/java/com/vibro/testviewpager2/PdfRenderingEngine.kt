@@ -10,11 +10,12 @@ import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.floor
 
-class PdfRenderingEngine(private val context: Context, private val snRenderer: SnRenderer) : RenderPagesProvider {
+class PdfRenderingEngine(private val context: Context, private val snRenderer: SnRenderer) :
+    RenderPagesProvider {
 
     private val TAG = this.javaClass.simpleName
 
-    private val pagesCache = PagesCache(this)
+    private val cache = PagesCache(this)
 
     private val originalPages: MutableList<PageInfo> = mutableListOf()
     private val currentPages: MutableList<PageInfo> by lazy {
@@ -29,7 +30,7 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
 
     fun close() {
         snRenderer.close()
-        pagesCache.clearCache()
+        cache.clearCache()
     }
 
     override fun getPages() = if (!hasChanges) originalPages else currentPages
@@ -42,7 +43,8 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
             return Observable.fromCallable {
                 val currentPage = currentPages[index]
                 val b =
-                    Glide.with(context).asBitmap().load(currentPage.pageChangesData?.storedPage).submit()
+                    Glide.with(context).asBitmap().load(currentPage.pageChangesData?.storedPage)
+                        .submit()
                         .get()
                 RenderedPageData(currentPage, quality, b, RenderingStatus.Complete)
             }
@@ -58,24 +60,44 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
         }
     }
 
-    fun rearrange(indexFrom: Int, indexTo: Int): Observable<Unit> {
+    fun rearrangePage(indexFrom: Int, indexTo: Int): Observable<Unit> {
         return Observable.fromCallable {
             val pageInfoToRearrange = currentPages.removeAt(indexFrom)
             currentPages.add(indexTo, pageInfoToRearrange)
-            val mapped = currentPages.mapIndexed { i, p -> p.copy(pageIndexOfTotal = i) }
-            currentPages.clear()
-            currentPages.addAll(mapped)
-            pagesCache.clearCache()
+            updateIndexes()
+            cache.clearCache()
         }
     }
 
-    fun pageIsNewOrHasChanges(index: Int): Boolean {
-        return currentPages[index].pageChangesData != null
+    private fun updateIndexes() {
+        val mapped = currentPages.mapIndexed { i, p -> p.copy(pageIndexOfTotal = i) }
+        currentPages.clear()
+        currentPages.addAll(mapped)
     }
 
-    fun getPage(index: Int): Observable<RenderedPageData> {
+    /**
+     * Return prev page index
+     */
+    fun removePage(index: Int): Observable<Unit> {
+        if (currentPages.size == 1) return Observable.error(LastPageCannotBeRemoved())
+        return Observable.fromCallable {
+            val pageInfo = currentPages.removeAt(index)
+            updateIndexes()
+            cache.remove(pageInfo)
+        }
+    }
+
+
+    fun getPage(index: Int, quality: SnRenderer.Quality = SnRenderer.Quality.Normal): Observable<RenderedPageData> {
         Log.d(TAG, "get page $index")
-        return pagesCache.getCachedPage(index)
+        return when (quality) {
+            SnRenderer.Quality.Normal -> provideViaCache(index)
+            else -> providePage(index,quality)
+        }
+    }
+
+    private fun provideViaCache(index: Int): Observable<RenderedPageData> {
+        return cache.getCachedPage(index)
             .flatMap { cachedPage: RenderedPageData ->
                 if (cachedPage.bitmap != null) {
                     Observable.just(cachedPage)
@@ -83,6 +105,10 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
                     snRenderer.waitRender(cachedPage.pageInfo.id, SnRenderer.Quality.Normal)
                 }
             }
+    }
+
+    private fun pageIsNewOrHasChanges(index: Int): Boolean {
+        return currentPages[index].pageChangesData != null
     }
 
     //    fun rotatePage(index: Int): Observable<RenderedPageData> {
@@ -98,6 +124,8 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
 //    }
 
 }
+
+class LastPageCannotBeRemoved : RuntimeException()
 
 class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
 
@@ -126,7 +154,7 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
         cache.clear()
     }
 
-    private fun alignCache(index: Int) {
+    fun alignCache(index: Int) {
         val newCache = LinkedList<RenderedPageData>()
 
         fillRightSide(index, newCache)
@@ -175,6 +203,10 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
             SnRenderer.Quality.Normal,
             status = RenderingStatus.Wait
         )
+    }
+
+    fun remove(pageInfo: PageInfo) {
+        cache.find { it.pageInfo.id == pageInfo.id }?.let { cache.remove(it) }
     }
 
 }

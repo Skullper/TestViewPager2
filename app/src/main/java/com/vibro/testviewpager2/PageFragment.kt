@@ -34,6 +34,9 @@ class PageFragment : Fragment() {
                 },
                 { error -> Log.e("TAGA", "Error: ${error.message}") }
             )
+        btn_remove.setOnClickListener {
+            (activity as? MainActivity)?.removePage(pageIndex)
+        }
         iv_page_fragment?.setOnClickListener {
 //            renderer.rotatePage(pageIndex)
 //                .compose(applySchedulersObservable())
