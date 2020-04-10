@@ -97,6 +97,10 @@ class EditorView : FrameLayout, KoinComponent {
         viewPager.setCurrentItem(index, false)
     }
 
+    fun save(): Observable<String> {
+        return engine.save()
+    }
+
     inner class PageAdapter(fragmentActivity: FragmentActivity) :
         FragmentStateAdapter(fragmentActivity) {
 

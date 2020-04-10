@@ -34,7 +34,7 @@ data class PageInfo(
     val pageChangesData: PageChangesData? = null,
     val id:Long = UUID.randomUUID().mostSignificantBits)
 
-data class PageChangesData(val storedPage: Uri? = null)
+data class PageChangesData(val storedPage: Uri)
 
 data class PdfFileData(val file: File, val pageCount: Int)
 
@@ -82,7 +82,8 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
             val pageAttributes = pageInfoToRender.pageInfo.pageAttributes ?: setPageAttributes(currentPage, pageInfoToRender)
             val bitmap = renderPage(currentPage, pageAttributes)
 
-            val renderedData = RenderedPageData(pageInfoToRender.pageInfo, pageInfoToRender.quality, bitmap, RenderingStatus.Complete)
+            val pageInfo = pageInfoToRender.pageInfo.copy(pageAttributes = pageAttributes)
+            val renderedData = RenderedPageData(pageInfo, pageInfoToRender.quality, bitmap, RenderingStatus.Complete)
             renderingResultPublisher.onNext(renderedData)
         }
     }
@@ -121,6 +122,8 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         updatePage(updatedPage)
         return updatedPage
     }
+
+    fun getCurrentFile() = currentFile
 
 //    fun rotateAllPages(direction: RotateDirection): Observable<Unit> {
 //        // TODO(08.04.2020)

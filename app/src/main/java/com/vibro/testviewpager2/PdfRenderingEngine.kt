@@ -1,14 +1,25 @@
 package com.vibro.testviewpager2
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.util.Log
 import com.bumptech.glide.Glide
 import io.reactivex.Observable
+import io.reactivex.Single
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.lang.Exception
+import java.lang.IllegalArgumentException
 import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.floor
+
+data class PageToSave(val index:Int, val bitmap: Bitmap, val width:Int, val height:Int)
 
 class PdfRenderingEngine(private val context: Context, private val snRenderer: SnRenderer) :
     RenderPagesProvider {
@@ -16,21 +27,80 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
     private val TAG = this.javaClass.simpleName
 
     private val cache = PagesCache(this)
-
     private val originalPages: MutableList<PageInfo> = mutableListOf()
     private val currentPages: MutableList<PageInfo> by lazy {
         hasChanges = true
         ArrayList<PageInfo>(originalPages)
     }
+
     private var hasChanges = false
+    private var multifiles = false
 
     fun open(files: List<File>): List<PageInfo> {
+        multifiles = files.size > 1
         return snRenderer.open(files).apply { originalPages.addAll(this) }
     }
 
     fun close() {
         snRenderer.close()
         cache.clearCache()
+    }
+
+    @Throws(IllegalArgumentException::class, OperationNotSupported::class, NoChangesFound::class, IOException::class)
+    fun save(): Observable<String> {
+        if (multifiles) return Observable.error(OperationNotSupported())
+        if (!hasChanges) return Observable.error(NoChangesFound())
+
+        var counter = 0
+        val pdfDocument = PdfDocument()
+
+        fun providePageToSave(page: PageInfo): Observable<PageToSave> {
+            return if (page.pageChangesData == null) {
+                snRenderer.renderPage(page, SnRenderer.Quality.Normal)
+                    .map {
+                        val isPortrait = it.pageInfo.pageAttributes?.isPortrait()?:true
+                        val pageSize = it.pageInfo.pageAttributes?.pageSize
+                        if (it.bitmap == null || pageSize == null) throw IllegalArgumentException()
+                        val width = if (isPortrait) pageSize.first else pageSize.second
+                        val height = if (isPortrait) pageSize.second else pageSize.first
+                        PageToSave(counter++, it.bitmap, width,height)
+                    }
+            } else {
+                Observable.fromCallable {
+                    val bitmap = bitmapFromUri(page.pageChangesData.storedPage) ?: throw IllegalArgumentException()
+                    PageToSave(counter++, bitmap, bitmap.width, bitmap.height)
+                }
+            }
+        }
+
+        fun writePageToPdfFile(pageToSave: PageToSave, pdfDocument: PdfDocument) {
+            val pageInfo = PdfDocument.PageInfo.Builder(pageToSave.width, pageToSave.height, pageToSave.index).create()
+            val page = pdfDocument.startPage(pageInfo)
+            page.canvas.drawBitmap(pageToSave.bitmap, null, Rect(0, 0, pageToSave.width, pageToSave.height), Paint())
+            pdfDocument.finishPage(page)
+        }
+
+        fun writeOnDisk(file: File, pdfDocument: PdfDocument): String {
+            val absolutePath = file.absolutePath
+            val ext = absolutePath.substringAfterLast(".")
+            val name = absolutePath.substringBeforeLast(".") + "-upd"
+            val filePath = name + ext
+            val outStream = FileOutputStream(filePath)
+            pdfDocument.writeTo(outStream)
+            try {
+                outStream.close()
+            } catch (e: Exception) {
+                //do nothing
+            }
+            return filePath
+        }
+
+        return Observable.fromIterable(currentPages)
+            .flatMap { page -> providePageToSave(page) }
+            .map { pageToSave -> writePageToPdfFile(pageToSave, pdfDocument) }
+            .toList().toObservable().map { snRenderer.getCurrentFile().file }
+            .map { file -> writeOnDisk(file, pdfDocument) }
+            .doFinally { pdfDocument.close() }
     }
 
     override fun getPages() = if (!hasChanges) originalPages else currentPages
@@ -42,13 +112,16 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
         } else {
             return Observable.fromCallable {
                 val currentPage = currentPages[index]
-                val b =
-                    Glide.with(context).asBitmap().load(currentPage.pageChangesData?.storedPage)
-                        .submit()
-                        .get()
+                val b = bitmapFromUri(currentPage.pageChangesData?.storedPage)
                 RenderedPageData(currentPage, quality, b, RenderingStatus.Complete)
             }
         }
+    }
+
+    private fun bitmapFromUri(uri: Uri?): Bitmap? {
+        return Glide.with(context).asBitmap().load(uri)
+            .submit()
+            .get()
     }
 
     fun addPage(uri: Uri): Observable<Boolean> {
@@ -126,6 +199,8 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
 }
 
 class LastPageCannotBeRemoved : RuntimeException()
+class OperationNotSupported : RuntimeException()
+class NoChangesFound : RuntimeException()
 
 class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
 

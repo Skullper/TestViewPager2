@@ -18,17 +18,28 @@ class MainActivity : AppCompatActivity() {
 
     private val RC_GET_IMG: Int = 2222
     val DIRECTORY = "app_docs"
+    val file = "file"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        val files = listOf(
-            getPdf(this, "b.pdf")
+        val path = intent.getStringExtra(file)
+        if (path != null) {
+            editorView.show(listOf(File(path)), this)
+                .compose(applySchedulersObservable())
+                .subscribeAndDispose()
+        } else {
+            val files = listOf(
+                getPdf(this, "b.pdf")
 //            getPdf(this, "b.pdf")
-        )
-        editorView.show(files, this)
-            .compose(applySchedulersObservable())
-            .subscribeAndDispose()
+            )
+
+            editorView.show(files, this)
+                .compose(applySchedulersObservable())
+                .subscribeAndDispose()
+        }
+
+
 
         btn_add_page.setOnClickListener {
             openPicker()
@@ -37,6 +48,14 @@ class MainActivity : AppCompatActivity() {
 
         btn_rearrange.setOnClickListener {
             editorView.rearrangePage(0, 5).subscribeAndDispose()
+        }
+
+        btn_save.setOnClickListener {
+            editorView.save()
+                .subscribeAndDispose({ it ->
+                    val i = Intent(this, MainActivity::class.java).putExtra(file, it)
+                    startActivity(i)
+                })
         }
     }
 
