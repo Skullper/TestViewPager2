@@ -9,7 +9,6 @@ import android.net.Uri
 import android.util.Log
 import com.bumptech.glide.Glide
 import io.reactivex.Observable
-import io.reactivex.Single
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -80,26 +79,26 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
             pdfDocument.finishPage(page)
         }
 
-        fun writeOnDisk(file: File, pdfDocument: PdfDocument): String {
-            val absolutePath = file.absolutePath
-            val ext = absolutePath.substringAfterLast(".")
-            val name = absolutePath.substringBeforeLast(".") + "-upd"
-            val filePath = name + ext
-            val outStream = FileOutputStream(filePath)
+        fun writeOnDisk(pdfDocument: PdfDocument): String {
+            val file = snRenderer.getCurrentFile().file
+            val path = file.absolutePath
+            file.delete()
+            val outStream = FileOutputStream(path)
             pdfDocument.writeTo(outStream)
             try {
                 outStream.close()
             } catch (e: Exception) {
                 //do nothing
             }
-            return filePath
+            return path
         }
 
         return Observable.fromIterable(currentPages)
             .flatMap { page -> providePageToSave(page) }
             .map { pageToSave -> writePageToPdfFile(pageToSave, pdfDocument) }
-            .toList().toObservable().map { snRenderer.getCurrentFile().file }
-            .map { file -> writeOnDisk(file, pdfDocument) }
+            .toList()
+            .toObservable()
+            .map { writeOnDisk(pdfDocument) }
             .doFinally { pdfDocument.close() }
     }
 
