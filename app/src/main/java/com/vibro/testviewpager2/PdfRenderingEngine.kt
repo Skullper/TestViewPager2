@@ -192,7 +192,7 @@ class PdfRenderingEngine(
         Log.d(TAG, "get page $index")
         return when (quality) {
             SnRenderer.Quality.Normal -> provideViaCache(index)
-            else -> providePage(index,quality)
+            else -> providePage(index, quality)
         }
     }
 
@@ -221,6 +221,7 @@ class PdfRenderingEngine(
 
     private fun rotatePageFromUri(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
         return Observable.fromCallable {
+            // TODO(13.04.2020) Try to do more compact
             val currentPage = currentPages[index]
             val attributes = currentPage.pageAttributes as? FrameworkPageAttributes
             val oldAngle = attributes?.rotateDirection?.get() ?: 0F
@@ -243,26 +244,18 @@ class PdfRenderingEngine(
         }.flatMap { getPage(index) }
     }
 
-//    fun rotateAllPages(index: Int, direction: RotateDirection): Observable<RenderedPageData> {
-//        if (currentPages.isEmpty()) {
-//            return snRenderer.rotateAllPages(direction)
-//                .map { cache.clearCache() }
-//                .flatMap { getPage(index) }
-//        } else {
-//            // TODO(10.04.2020) Change it
-//            currentPages.forEach {
-//                if (pageIsNewOrHasChanges(it.pageIndexOfTotal)) {
-//                    val attributes =
-//                        (it.pageAttributes as? FrameworkPageAttributes)?.copy(rotateDirection = direction)
-//                    attributes?.matrix?.preRotate(direction.angle)
-//                    currentPages[it.pageIndexOfTotal] = it.copy(pageAttributes = attributes)
-//                }
-//            }
-//            return Observable.fromCallable(cache::clearCache)
-//                .flatMap { snRenderer.rotateAllPages(direction) }
-//                .flatMap { getPage(index) }
-//        }
-//    }
+    fun rotateAllPages(index: Int, direction: RotateDirection): Observable<RenderedPageData> {
+        return Observable.fromIterable(getPages())
+                .map { page ->
+                    val oldAngle = page.pageAttributes?.rotateDirection?.get() ?: 0F
+                    val rotatedPage = snRenderer.rotatePage(page, direction.rotateAndForget(oldAngle))
+                    updatePage(rotatedPage)
+                }
+                .toList()
+                .toObservable()
+                .map { cache.clearCache() }
+                .flatMap { getPage(index) }
+    }
 
 }
 

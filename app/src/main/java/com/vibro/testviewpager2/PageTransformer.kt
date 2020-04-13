@@ -12,21 +12,33 @@ interface PageAttributes {
     val viewSize: Pair<Int, Int>
     val pageSize: Pair<Int, Int>
     val rotateDirection: RotateDirection
+
     fun isPortrait(): Boolean
+    fun notRenderedYet(): Boolean
 }
 
 data class FrameworkPageAttributes(override val viewSize: Pair<Int, Int>,
                                    override val pageSize: Pair<Int, Int>,
                                    override val rotateDirection: RotateDirection = RotateDirection.Clockwise(),
                                    val matrix: Matrix) : PageAttributes {
+
     override fun isPortrait() = matrix.isPortrait()
+
+    override fun notRenderedYet(): Boolean {
+        return viewSize.first == 0 && pageSize.first == 0
+    }
 }
 
 data class NativePageAttributes(override val viewSize: Pair<Int, Int>,
                                 override val pageSize: Pair<Int, Int>,
                                 override val rotateDirection: RotateDirection = RotateDirection.Clockwise(),
                                 val angle: Float) : PageAttributes{
+
     override fun isPortrait() = true
+
+    override fun notRenderedYet(): Boolean {
+        return viewSize.first == 0 && pageSize.first == 0
+    }
 }
 
 class PageTransformer {
