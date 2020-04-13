@@ -9,46 +9,53 @@ import androidx.fragment.app.Fragment
 import kotlinx.android.synthetic.main.fragment_page.*
 import org.koin.android.ext.android.inject
 
-class PageFragment: Fragment() {
+class PageFragment : Fragment() {
 
-    private val renderer: SnRenderer by inject()
+    private val renderer: PdfRenderingEngine by inject()
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
         return inflater.inflate(R.layout.fragment_page, container)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val pageInfo = arguments?.getParcelable<PageInfo>("PAGE_NUMBER")
-        renderer.getPage(pageInfo!!)
-                .compose(applySchedulersObservable())
-                .subscribeAndDispose(
-                        { bitmap -> iv_page_fragment?.setImageBitmap(bitmap.bitmap) },
-                        { error -> Log.e("TAGA", "Error: ${error.message}") }
-                )
-//        renderer.also {
-//            val previewRenderPage = PdfPageProvider.PageToRender(pageIndex, PdfPageProvider.RenderType.PREVIEW)
-////            val previewCallback: ((Bitmap?) -> Unit)? = { bitmap: Bitmap? ->
-////                // TODO-Pavliuk (25.03.2020) later
-////            }
-////            renderer.renderPageAsync(previewRenderPage, previewCallback)
-//
-//            val normalRenderPage = previewRenderPage.copy(renderType = PdfPageProvider.RenderType.NORMAL)
-//            val normalCallback = { bitmap: Bitmap? ->
-//                iv_page_fragment?.setImageBitmap(bitmap)
-//                Unit
-////                init(bitmap, renderer)
-//            }
-//
-//            renderer.renderPageAsync(normalRenderPage, normalCallback)
-//        }
+        val pageIndex = arguments?.getInt(ARG_PAGE_INDEX) ?: 0
+        position.setText(pageIndex.toString())
+        renderer.getPage(pageIndex)
+            .compose(applySchedulersObservable())
+            .subscribeAndDispose(
+                { bitmap ->
+                    iv_page_fragment?.setImageBitmap(bitmap.bitmap)
+                    progressBar?.visibility = View.GONE
+                },
+                { error -> Log.e("TAGA", "Error: ${error.message}") }
+            )
+        btn_remove.setOnClickListener {
+            (activity as? MainActivity)?.removePage(pageIndex)
+        }
+        iv_page_fragment?.setOnClickListener {
+//            renderer.rotatePage(pageIndex)
+//                .compose(applySchedulersObservable())
+//                .map { page -> page.bitmap!! }
+//                .subscribeAndDispose(
+//                    { iv_page_fragment?.setImageBitmap(it)},
+//                    { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
+//                )
+        }
     }
 
     companion object {
-        fun newInstance(pageInfo: PageInfo): PageFragment {
+
+        const val ARG_PAGE_INDEX = "PAGE_INDEX"
+
+        fun newInstance(index: Int): PageFragment {
             return PageFragment().apply {
                 arguments = Bundle().apply {
-                    putParcelable("PAGE_NUMBER", pageInfo)
+                    putInt(ARG_PAGE_INDEX, index)
                 }
             }
         }

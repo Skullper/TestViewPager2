@@ -8,18 +8,35 @@
         android:id="@+id/editorView"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginBottom="24dp"
-        app:layout_constraintBottom_toTopOf="@+id/btn_some"
+        app:layout_constraintBottom_toTopOf="@+id/btn_add_page"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
     <Button
-        android:id="@+id/btn_some"
+        android:id="@+id/btn_add_page"
         android:layout_width="0dp"
-        android:layout_height="100dp"
-        android:text="SOME BTN"
+        android:layout_height="55dp"
+        android:text="add page"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <Button
+        android:id="@+id/btn_rearrange"
+        android:layout_width="0dp"
+        android:layout_height="55dp"
+        android:text="rearrange"
+        app:layout_constraintBottom_toBottomOf="@+id/editorView"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <Button
+        android:id="@+id/btn_save"
+        android:layout_width="0dp"
+        android:layout_height="55dp"
+        android:text="save"
+        app:layout_constraintBottom_toTopOf="@+id/btn_rearrange"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 

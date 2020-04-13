@@ -4,6 +4,7 @@ import org.koin.dsl.module
 
 val myModule = module {
 
-    single { (renderer: SnRenderer) -> SnRendererWrapper(renderer) }
-    single { get<SnRendererWrapper>().pdfPageProvider }
+    factory { PageTransformer() }
+    single { SnRenderer(pageTransformer = get()) }
+    single { PdfRenderingEngine(get(), get()) }
 }
