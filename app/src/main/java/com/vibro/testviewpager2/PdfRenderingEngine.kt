@@ -141,6 +141,22 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
         }
     }
 
+    fun updatePages(newOrderOfElements:List<Long>): Observable<Unit> {
+        return Observable.fromCallable {
+            val pages = getPages()
+            if (newOrderOfElements.size > pages.size) Observable.error<Unit>(NewOrderCapacityMoreThanInitial())
+            if (newOrderOfElements.isNotEmpty()) {
+                currentPages.clear()
+                newOrderOfElements.forEach { id ->
+                    val page = pages.firstOrNull { it.id == id }
+                    page?.let { currentPages.add(page) }?: throw PageNotFound()
+                }
+                updateIndexes()
+                cache.clearCache()
+            }
+        }
+    }
+
     private fun updateIndexes() {
         val mapped = currentPages.mapIndexed { i, p -> p.copy(pageIndexOfTotal = i) }
         currentPages.clear()
@@ -197,9 +213,6 @@ class PdfRenderingEngine(private val context: Context, private val snRenderer: S
 
 }
 
-class LastPageCannotBeRemoved : RuntimeException()
-class OperationNotSupported : RuntimeException()
-class NoChangesFound : RuntimeException()
 
 class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
 
@@ -289,3 +302,9 @@ interface RenderPagesProvider {
     fun getPages(): List<PageInfo>
     fun providePage(index: Int, quality: SnRenderer.Quality): Observable<RenderedPageData>
 }
+
+class LastPageCannotBeRemoved : RuntimeException()
+class OperationNotSupported : RuntimeException()
+class NoChangesFound : RuntimeException()
+class PageNotFound : RuntimeException()
+class NewOrderCapacityMoreThanInitial : RuntimeException()
