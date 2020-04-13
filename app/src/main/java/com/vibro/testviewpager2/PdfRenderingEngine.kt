@@ -16,9 +16,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.lang.Exception
 import java.lang.IllegalArgumentException
-import java.util.*
 import kotlin.collections.ArrayList
-import kotlin.math.floor
 
 data class PageToSave(val index:Int, val bitmap: Bitmap, val width:Int, val height:Int)
 
@@ -139,7 +137,7 @@ class PdfRenderingEngine(
     fun addPage(uri: Uri): Observable<Boolean> {
         return Observable.fromCallable {
             val pageIndex = currentPages.lastIndex + 1
-            val attributes = FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), RotateDirection.Clockwise(0F), Matrix())
+            val attributes = FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), RotationState.Clockwise(), Matrix())
             val pageInfo = PageInfo(null, -1, pageIndex, attributes, PageChangesData(uri))
             currentPages.add(pageInfo)
             true
@@ -213,7 +211,7 @@ class PdfRenderingEngine(
         return currentPages[index].pageChangesData != null
     }
 
-    fun rotatePage(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
+    fun rotatePage(index: Int, direction: RotationState = RotationState.Clockwise()): Observable<RenderedPageData> {
         return if (!pageIsNewOrHasChanges(index)) {
             rotatePageFromRenderer(index, direction)
         } else {
@@ -221,23 +219,24 @@ class PdfRenderingEngine(
         }
     }
 
-    private fun rotatePageFromUri(index: Int, direction: RotateDirection): Observable<RenderedPageData> {
+    private fun rotatePageFromUri(index: Int, direction: RotationState = RotationState.Clockwise()): Observable<RenderedPageData> {
         return Observable.fromCallable {
             val currentPage = currentPages[index]
-            val attributes = (currentPage.pageAttributes as? FrameworkPageAttributes)?.copy(rotateDirection = direction)
-            attributes?.matrix?.preRotate(direction.angle)
-            val updatePage = currentPage.copy(pageAttributes = attributes)
-            val transformer = RotatePageTransformer(attributes)
-            val b = Glide.with(context).asBitmap().load(currentPage.pageChangesData?.storedPage).transform(transformer).submit().get()
-            currentPages[index] = updatePage
-            RenderedPageData(currentPages[index], SnRenderer.Quality.Normal, b, RenderingStatus.Complete)
+            val attributes = currentPage.pageAttributes as? FrameworkPageAttributes
+            val oldAngle = attributes?.rotateDirection?.getAngle() ?: 0F
+            val rotatedPage = currentPage.copy(pageAttributes = attributes?.copy(rotateDirection = direction.rotate(oldAngle)))
+            updatePage(rotatedPage)
+            val transformer = RotatePageTransformer(rotatedPage.pageAttributes as? FrameworkPageAttributes)
+            val b = Glide.with(context).asBitmap().load(rotatedPage.pageChangesData?.storedPage).transform(transformer).submit().get()
+            RenderedPageData(rotatedPage, SnRenderer.Quality.Normal, b, RenderingStatus.Complete)
         }
     }
 
-    private fun rotatePageFromRenderer(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
+    private fun rotatePageFromRenderer(index: Int, direction: RotationState = RotationState.Clockwise()): Observable<RenderedPageData> {
         return Observable.fromCallable {
             val pageForRotation = getPages()[index]
-            val rotatedPage = snRenderer.rotatePage(pageForRotation, direction)
+            val oldAngle = pageForRotation.pageAttributes?.rotateDirection?.getAngle() ?: 0F
+            val rotatedPage = snRenderer.rotatePage(pageForRotation, direction.rotate(oldAngle))
             updatePage(rotatedPage)
             val renderedPageData = RenderedPageData(rotatedPage, SnRenderer.Quality.Normal, null, RenderingStatus.Wait)
             cache.updatePageInCache(renderedPageData)

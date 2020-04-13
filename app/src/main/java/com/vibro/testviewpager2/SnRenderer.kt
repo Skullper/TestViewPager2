@@ -15,6 +15,7 @@ import io.reactivex.schedulers.Schedulers
 import io.reactivex.subjects.PublishSubject
 import java.io.File
 import java.util.*
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -53,9 +54,40 @@ sealed class RenderingStatus {
     object Complete : RenderingStatus()
 }
 
-sealed class RotateDirection(open val angle: Float) {
-    data class Clockwise(override val angle: Float = 90F) : RotateDirection(angle)
-    data class Counterclockwise(override val angle: Float = -90F) : RotateDirection(angle)
+abstract class RotationState {
+
+    abstract fun rotate(angle: Float): RotationState
+    abstract fun getAngle(): Float
+
+    class Clockwise(angle: Float = 0F): RotationState() {
+
+        private var angle: Float = angle
+            set(value) {
+                field = if (value >= 360F) 0F else value
+            }
+
+        override fun rotate(angle: Float): RotationState {
+            this.angle += angle
+            return this
+        }
+
+        override fun getAngle(): Float = angle
+    }
+
+    class CounterClockwise(angle: Float = 0F) : RotationState() {
+
+        private var angle: Float = abs(angle)
+            set(value) {
+                field = if (value >= 360F) 0F else value
+            }
+
+        override fun rotate(angle: Float): RotationState {
+            this.angle += abs(angle)
+            return this
+        }
+
+        override fun getAngle(): Float = -angle
+    }
 }
 
 class SnRenderer(private val pageTransformer: PageTransformer) {
@@ -111,7 +143,7 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
     }
 
     // TODO(13.04.2020) Maybe pageTransformer and this method should be extracted to engine
-    fun rotatePage(page: PageInfo, direction: RotateDirection = RotateDirection.Clockwise()): PageInfo {
+    fun rotatePage(page: PageInfo, direction: RotationState = RotationState.Clockwise()): PageInfo {
         val pageAttributes = page.pageAttributes as? FrameworkPageAttributes
         val result = pageTransformer.rotatePage(pageAttributes?.copy(rotateDirection = direction))
         return page.copy(pageAttributes = result)

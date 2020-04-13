@@ -1,8 +1,10 @@
 package com.vibro.testviewpager2.utils
 
 import android.graphics.Bitmap
+import androidx.exifinterface.media.ExifInterface
 import com.bumptech.glide.load.engine.bitmap_recycle.BitmapPool
 import com.bumptech.glide.load.resource.bitmap.BitmapTransformation
+import com.bumptech.glide.load.resource.bitmap.TransformationUtils
 import com.vibro.testviewpager2.FrameworkPageAttributes
 import java.security.MessageDigest
 
@@ -14,11 +16,18 @@ class RotatePageTransformer(private val pageAttributes: FrameworkPageAttributes?
     override fun transform(pool: BitmapPool, toTransform: Bitmap, outWidth: Int, outHeight: Int): Bitmap {
         if (pageAttributes == null) return toTransform //return original bitmap
 
-        return Bitmap.createBitmap(toTransform, 0, 0, toTransform.width, toTransform.height, pageAttributes.matrix, true)
+        return TransformationUtils.rotateImageExif(pool, toTransform, getExifOrientationAngle())
     }
 
     override fun updateDiskCacheKey(messageDigest: MessageDigest) {
-        messageDigest.update("rotation:${pageAttributes?.matrix?.toShortString()}".toByteArray())
+        messageDigest.update("rotation:${pageAttributes?.rotateDirection?.getAngle()}".toByteArray())
+    }
+
+    private fun getExifOrientationAngle(): Int = when (pageAttributes?.rotateDirection?.getAngle()) {
+        90F, -270F -> ExifInterface.ORIENTATION_ROTATE_90
+        180F, -180F -> ExifInterface.ORIENTATION_ROTATE_180
+        270F, -90F -> ExifInterface.ORIENTATION_ROTATE_270
+        else -> ExifInterface.ORIENTATION_NORMAL
     }
 
 }

@@ -8,10 +8,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import com.theartofdev.edmodo.cropper.CropImageActivity
 import com.vibro.testviewpager2.crop.CroppingDataHolder
 import com.vibro.testviewpager2.crop.PageCroppingActivity
-import com.vibro.testviewpager2.crop.getCroppingActivityIntent
 import kotlinx.android.synthetic.main.fragment_page.*
 import org.koin.android.ext.android.inject
 
@@ -47,7 +45,7 @@ class PageFragment : Fragment() {
             (activity as? MainActivity)?.removePage(pageIndex)
         }
         iv_page_fragment?.setOnClickListener {
-            renderer.rotatePage(pageIndex, RotateDirection.Clockwise(90F))
+            renderer.rotatePage(pageIndex, RotationState.Clockwise(90F))
                 .compose(applySchedulersObservable())
                 .subscribeAndDispose(
                     { page ->
