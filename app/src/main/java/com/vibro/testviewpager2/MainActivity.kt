@@ -61,10 +61,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
     override fun onDestroy() {
         editorView.close()
         super.onDestroy()
+    }
+
+    fun reloadEditorView() {
+        editorView?.reload()
     }
 
     fun getPdf(context: Context, filenameInAssets: String): File {

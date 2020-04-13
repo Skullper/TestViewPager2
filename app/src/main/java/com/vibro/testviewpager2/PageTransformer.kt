@@ -31,7 +31,7 @@ class PageTransformer {
     }
 
     private fun performRotation(page: FrameworkPageAttributes): PageAttributes {
-        val matrix = Matrix().apply { set(page.matrix) }
+        val matrix = Matrix()
         val (pageWidth, pageHeight) = page.pageSize
         val (viewWidth, viewHeight) = page.viewSize
         val direction = page.rotateDirection

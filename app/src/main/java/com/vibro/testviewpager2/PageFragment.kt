@@ -47,7 +47,10 @@ class PageFragment : Fragment() {
             renderer.rotatePage(pageIndex, RotateDirection.Clockwise(90F))
                 .compose(applySchedulersObservable())
                 .subscribeAndDispose(
-                    { page -> iv_page_fragment?.setImageBitmap(page.bitmap)},
+                    { page ->
+                        iv_page_fragment?.setImageBitmap(page.bitmap)
+                        (activity as? MainActivity)?.reloadEditorView()
+                    },
                     { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
                 )
 //            startActivityForResult(activity?.getCroppingActivityIntent(), PageCroppingActivity.RC_CROPPING)

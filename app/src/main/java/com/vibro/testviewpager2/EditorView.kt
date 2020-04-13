@@ -2,7 +2,9 @@ package com.vibro.testviewpager2
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
 import android.util.AttributeSet
+import android.util.Log
 import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.AttrRes
@@ -13,6 +15,7 @@ import androidx.viewpager2.adapter.FragmentStateAdapter
 import androidx.viewpager2.widget.MarginPageTransformer
 import io.reactivex.Observable
 import io.reactivex.android.schedulers.AndroidSchedulers
+import io.reactivex.subjects.PublishSubject
 import kotlinx.android.synthetic.main.view_editor.view.*
 import org.koin.core.KoinComponent
 import org.koin.core.inject
@@ -30,45 +33,36 @@ class EditorView : FrameLayout, KoinComponent {
         initView(context, attrs)
     }
 
-    constructor(context: Context, attrs: AttributeSet?, @AttrRes defStyleAttr: Int) : super(
-        context,
-        attrs,
-        defStyleAttr
-    ) {
+    constructor(context: Context, attrs: AttributeSet?, @AttrRes defStyleAttr: Int)
+            : super(context, attrs, defStyleAttr) {
         initView(context, attrs, defStyleAttr)
     }
 
-    constructor(
-        context: Context,
-        attrs: AttributeSet?, @AttrRes defStyleAttr: Int, @StyleRes defStyleRes: Int
-    ) : super(context, attrs, defStyleAttr, defStyleRes) {
+    constructor(context: Context, attrs: AttributeSet?, @AttrRes defStyleAttr: Int, @StyleRes defStyleRes: Int)
+            : super(context, attrs, defStyleAttr, defStyleRes) {
         initView(context, attrs, defStyleAttr)
     }
 
     fun show(files: List<File>, fragmentActivity: FragmentActivity): Observable<Unit> {
         if (files.isEmpty()) throw IllegalArgumentException("List with files is empty")
 
-
         return Observable.just(files)
-            .map {
-                engine.open(it)
-                Unit
-            }
-            .observeOn(AndroidSchedulers.mainThread())
-            .doFinally {
-                val adapter = PageAdapter(fragmentActivity)
-                viewPager.adapter = adapter
-            }
+                .map {
+                    engine.open(it)
+                    Unit
+                }
+                .observeOn(AndroidSchedulers.mainThread())
+                .doFinally {
+                    val adapter = PageAdapter(fragmentActivity)
+                    viewPager.adapter = adapter
+                }
     }
 
     fun close() {
         engine.close()
     }
 
-    private fun initView(
-        context: Context,
-        attrs: AttributeSet? = null, @AttrRes defStyleAttr: Int = 0, @StyleRes defStyleRes: Int = 0
-    ) {
+    private fun initView(context: Context, attrs: AttributeSet? = null, @AttrRes defStyleAttr: Int = 0, @StyleRes defStyleRes: Int = 0) {
         View.inflate(context, R.layout.view_editor, this)
         viewPager?.setPageTransformer(MarginPageTransformer(50))
     }
@@ -85,8 +79,12 @@ class EditorView : FrameLayout, KoinComponent {
         viewPager.setCurrentItem(index, false)
     }
 
+    fun reload() {
+        viewPager?.adapter?.notifyItemRangeChanged(0, engine.getPages().lastIndex)
+    }
+
     inner class PageAdapter(fragmentActivity: FragmentActivity) :
-        FragmentStateAdapter(fragmentActivity) {
+            FragmentStateAdapter(fragmentActivity) {
 
         override fun getItemCount(): Int = engine.getPages().size
 

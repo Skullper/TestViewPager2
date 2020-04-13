@@ -37,10 +37,12 @@ data class PdfFileData(val file: File, val pageCount: Int)
 
 data class PageToRender(val pageInfo: PageInfo, val quality: SnRenderer.Quality = SnRenderer.Quality.Normal)
 
-data class RenderedPageData(val pageInfo: PageInfo,
-                            val quality: SnRenderer.Quality?,
-                            val bitmap: Bitmap? = null,
-                            val status: RenderingStatus)
+data class RenderedPageData(
+    val pageInfo: PageInfo,
+    val quality: SnRenderer.Quality?,
+    val bitmap: Bitmap? = null,
+    val status: RenderingStatus
+)
 
 sealed class RenderingStatus {
     object Wait : RenderingStatus()
@@ -76,10 +78,18 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
                 initMainRenderer(pdfFileData)
             }
             val currentPage = pdfRenderer.openPage(pageInfoToRender.pageInfo.pageIndex)
-            val pageAttributes = pageInfoToRender.pageInfo.pageAttributes ?: setPageAttributes(currentPage, pageInfoToRender)
-            val bitmap = renderPage(currentPage, pageAttributes)
+            val pageAttributes = pageInfoToRender.pageInfo.pageAttributes
+            val bitmap = renderPage(
+                currentPage,
+                setPageAttributes(currentPage, pageInfoToRender, pageAttributes)
+            )
 
-            val renderedData = RenderedPageData(pageInfoToRender.pageInfo, pageInfoToRender.quality, bitmap, RenderingStatus.Complete)
+            val renderedData = RenderedPageData(
+                pageInfoToRender.pageInfo,
+                pageInfoToRender.quality,
+                bitmap,
+                RenderingStatus.Complete
+            )
             renderingResultPublisher.onNext(renderedData)
         }
     }
@@ -112,8 +122,9 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
 
     fun waitRender(position: Int, quality: Quality): Observable<RenderedPageData> {
         return renderingResultPublisher
-                .filter { it.pageInfo.pageIndexOfTotal == position }
-                .filter { it.quality == quality }
+            .filter { it.pageInfo.pageIndexOfTotal == position }
+            .filter { it.quality == quality }
+            .take(1)
     }
 
     fun rotatePage(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): PageInfo {
@@ -125,22 +136,30 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         return updatedPage
     }
 
-//    fun rotateAllPages(direction: RotateDirection): Observable<Unit> {
-//        // TODO(08.04.2020)
-//        return Observable.fromIterable(pages)
-//            .map { pageInfo ->
-//                val attributes = pageInfo.pageAttributes
-//                val currentDirection = RotateDirection.Clockwise(attributes.rotateDirection.angle + direction.angle)
-//
-////                    pageInfo.copy(pageAttributes = DefaultPageAttributes(rotateDirection = currentDirection))
-//            }
-////                .map { pageInfo -> pages[pageInfo.pageIndexOfTotal] = pageInfo }
-//    }
+    fun rotateAllPages(direction: RotateDirection): Observable<List<Unit>> {
+        // TODO(08.04.2020)
+        return Observable.fromIterable(pages)
+            .map { pageInfo ->
+                var attributes = pageInfo.pageAttributes as? FrameworkPageAttributes
+                attributes = attributes?.copy(rotateDirection = direction)
+                    ?: FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), direction, Matrix())
+                if (pageInfo.pageAttributes != null && pageInfo.pageAttributes.viewSize.first != 0)
+                    pageInfo.copy(pageAttributes = pageTransformer.rotatePage(attributes))
+                else
+                    pageInfo.copy(pageAttributes = attributes)
+            }
+            .map { pageInfo ->
+                pages[pageInfo.pageIndexOfTotal] = pageInfo
+            }
+            .toList()
+            .toObservable()
+    }
 
     private fun initPages(files: List<File>): List<PageInfo> {
         var indexOfTotal = 0
         files.forEach { file ->
-            val parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val parcelFileDescriptor =
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             val localRenderer = PdfRenderer(parcelFileDescriptor)
             val filePagesCount = localRenderer.pageCount
             localRenderer.close()
@@ -151,30 +170,63 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
                 val info = PageInfo(fileData, it, index)
                 pages.add(info)
             }
-            if (!::currentFile.isInitialized && !::pdfRenderer.isInitialized) initMainRenderer(fileData)
+            if (!::currentFile.isInitialized && !::pdfRenderer.isInitialized) initMainRenderer(
+                fileData
+            )
         }
         return pages
     }
 
     private fun initMainRenderer(fileData: PdfFileData) {
         currentFile = fileData
-        val parcelFileDescriptor = ParcelFileDescriptor.open(currentFile.file, ParcelFileDescriptor.MODE_READ_ONLY)
+        val parcelFileDescriptor =
+            ParcelFileDescriptor.open(currentFile.file, ParcelFileDescriptor.MODE_READ_ONLY)
         pdfRenderer = PdfRenderer(parcelFileDescriptor)
     }
 
-    private fun setPageAttributes(currentPage: PdfRenderer.Page, pageInfoToRender: PageToRender): PageAttributes? {
-        val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
+    private fun setPageAttributes(
+        currentPage: PdfRenderer.Page,
+        pageInfoToRender: PageToRender,
+        attrs: PageAttributes?
+    ): PageAttributes? {
         val pageIndex = pages.indexOf(pageInfoToRender.pageInfo)
-        val matrix = Matrix().apply {
-            val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
-            postScale(initialScale, initialScale)
+        val newAttr = if (attrs == null || attrs !is FrameworkPageAttributes) {
+            val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
+            val matrix = Matrix().apply {
+                val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
+                postScale(initialScale, initialScale)
+            }
+            val attributes = FrameworkPageAttributes(
+                viewSize,
+                Pair(currentPage.width, currentPage.height),
+                RotateDirection.Clockwise(0F),
+                matrix = matrix
+            )
+            pageTransformer.rotatePage(attributes)
+        } else if (attrs.viewSize.first == 0) {
+            val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
+            val matrix = Matrix().apply {
+                val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
+                postScale(initialScale, initialScale)
+            }
+            val attributes = FrameworkPageAttributes(
+                viewSize,
+                Pair(currentPage.width, currentPage.height),
+                attrs.rotateDirection,
+                matrix
+            )
+            pageTransformer.rotatePage(attributes)
+        } else {
+            attrs
         }
-        val newAttr = FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), matrix = matrix)
         pages[pageIndex] = pages[pageIndex].copy(pageAttributes = newAttr)
         return newAttr
     }
 
-    private fun renderPage(currentPage: PdfRenderer.Page, pageAttributes: PageAttributes? = null): Bitmap {
+    private fun renderPage(
+        currentPage: PdfRenderer.Page,
+        pageAttributes: PageAttributes? = null
+    ): Bitmap {
         if (pageAttributes is NativePageAttributes) throw IllegalArgumentException("You need to use FrameworkPageAttributes here")
         if (pageAttributes == null) throw NullPointerException("Page attributes cannot be null during rendering")
 
@@ -187,7 +239,11 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
             Bitmap.createBitmap(viewWidth, viewHeight, Bitmap.Config.ARGB_8888)
         } else {
             val scale = viewWidth.toFloat() / pageHeight.toFloat()
-            Bitmap.createBitmap(viewWidth, (pageWidth.toFloat() * scale).toInt(), Bitmap.Config.ARGB_8888)
+            Bitmap.createBitmap(
+                viewWidth,
+                (pageWidth.toFloat() * scale).toInt(),
+                Bitmap.Config.ARGB_8888
+            )
         }
         currentPage.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
         currentPage.close()
@@ -233,36 +289,36 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
 fun <T> applySchedulersObservable(): (Observable<T>) -> Observable<T> {
     return { o: Observable<T> ->
         o.subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
+            .observeOn(AndroidSchedulers.mainThread())
     }
 }
 
 fun <T> applySchedulersSingle(): (Single<T>) -> Single<T> {
     return { o: Single<T> ->
         o.subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
+            .observeOn(AndroidSchedulers.mainThread())
     }
 }
 
 fun <T> Observable<T>.subscribeAndDispose(
-        onNext: (T) -> Unit = {},
-        onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) },
-        onComplete: () -> Unit = {}
+    onNext: (T) -> Unit = {},
+    onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) },
+    onComplete: () -> Unit = {}
 ): Disposable {
     var d: Disposable? = null
     d = this.doFinally {
         d?.dispose()
     }
-            .subscribe(onNext, onError, onComplete)
+        .subscribe(onNext, onError, onComplete)
     return d
 }
 
 fun <T> Single<T>.subscribeAndDispose(
-        onNext: (T) -> Unit = {},
-        onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) }
+    onNext: (T) -> Unit = {},
+    onError: (t: Throwable) -> Unit = { t -> Log.e("Error", t.localizedMessage ?: t.toString()) }
 ): Disposable {
     var d: Disposable? = null
     d = this.doFinally { d?.dispose() }
-            .subscribe(onNext, onError)
+        .subscribe(onNext, onError)
     return d
 }

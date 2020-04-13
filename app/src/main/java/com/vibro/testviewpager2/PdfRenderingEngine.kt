@@ -12,8 +12,10 @@ import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.floor
 
-class PdfRenderingEngine(private val context: Context,
-                         private val snRenderer: SnRenderer) : RenderPagesProvider {
+class PdfRenderingEngine(
+    private val context: Context,
+    private val snRenderer: SnRenderer
+) : RenderPagesProvider {
 
     private val TAG = this.javaClass.simpleName
 
@@ -50,7 +52,8 @@ class PdfRenderingEngine(private val context: Context,
     fun addPage(uri: Uri): Observable<Boolean> {
         return Observable.fromCallable {
             val pageIndex = currentPages.lastIndex + 1
-            val attributes = FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), RotateDirection.Clockwise(0F), Matrix())
+            val matrix = Matrix()
+            val attributes = FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), RotateDirection.Clockwise(0F), matrix)
             val pageInfo = PageInfo(null, pageIndex, pageIndex, attributes, PageChangesData(uri))
             currentPages.add(pageInfo)
             hasChanges = true
@@ -68,13 +71,13 @@ class PdfRenderingEngine(private val context: Context,
     fun getPage(index: Int): Observable<RenderedPageData> {
         Log.d(TAG, "get page $index")
         return pagesCache.getCachedPage(index)
-                .flatMap { cachedPage: RenderedPageData ->
-                    if (cachedPage.bitmap != null) {
-                        Observable.just(cachedPage)
-                    } else {
-                        snRenderer.waitRender(index, SnRenderer.Quality.Normal)
-                    }
+            .flatMap { cachedPage: RenderedPageData ->
+                if (cachedPage.bitmap != null) {
+                    Observable.just(cachedPage)
+                } else {
+                    snRenderer.waitRender(index, SnRenderer.Quality.Normal)
                 }
+            }
     }
 
     fun rotatePage(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
@@ -105,12 +108,27 @@ class PdfRenderingEngine(private val context: Context,
             pagesCache.updatePageInCache(renderedPageData)
         }.flatMap { getPage(index) }
     }
-//
-//    fun rotateAllPages(index: Int): Observable<RenderedPageData> {
-//        return Observable.fromCallable(pagesCache::clearCache)
-//            .flatMap { snRenderer.rotateAllPages(RotateDirection.Clockwise()) }
-//            .flatMap { pagesCache.getCachedPage(snRenderer.getPages()[index]) }
-//    }
+
+    fun rotateAllPages(index: Int, direction: RotateDirection): Observable<RenderedPageData> {
+        if (currentPages.isEmpty()) {
+            return snRenderer.rotateAllPages(direction)
+                .map { pagesCache.clearCache() }
+                .flatMap { getPage(index) }
+        } else {
+            // TODO(10.04.2020) Change it
+            currentPages.forEach {
+                if (pageIsNewOrHasChanges(it.pageIndexOfTotal)) {
+                    val attributes =
+                        (it.pageAttributes as? FrameworkPageAttributes)?.copy(rotateDirection = direction)
+                    attributes?.matrix?.preRotate(direction.angle)
+                    currentPages[it.pageIndexOfTotal] = it.copy(pageAttributes = attributes)
+                }
+            }
+            return Observable.fromCallable(pagesCache::clearCache)
+                .flatMap { snRenderer.rotateAllPages(direction) }
+                .flatMap { getPage(index) }
+        }
+    }
 
 }
 
@@ -126,14 +144,13 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
 
     fun getCachedPage(index: Int): Observable<RenderedPageData> {
         return Observable
-                .fromCallable { alignCache(index) }
-                .map { cache.first { it.pageInfo.pageIndexOfTotal == index } }
+            .fromCallable { alignCache(index) }
+            .map { cache.first { it.pageInfo.pageIndexOfTotal == index } }
     }
 
     fun updatePageInCache(renderData: RenderedPageData) {
         Log.d("TAG Cache", "find in cache ${renderData.pageInfo.pageIndexOfTotal}")
-        val i =
-                cache.indexOfFirst { it.pageInfo.pageIndexOfTotal == renderData.pageInfo.pageIndexOfTotal }
+        val i = cache.indexOfFirst { it.pageInfo.pageIndexOfTotal == renderData.pageInfo.pageIndexOfTotal }
         if (i != -1) cache[i] = renderData
     }
 
@@ -150,13 +167,13 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
         if (newCache.isNotEmpty()) {
             cache = newCache
             Observable.fromIterable(cache)
-                    .filter { it.bitmap == null && it.status == RenderingStatus.Wait }
-                    .doOnNext { updatePageInCache(it.copy(status = RenderingStatus.Rendering)) }
-                    .map { it.pageInfo.pageIndexOfTotal }
-                    .doOnNext { Log.d(TAG, "start rendering ${it}") }
-                    .flatMap { renderPagesProvider.providePage(it, SnRenderer.Quality.Normal) }
-                    .doOnNext { updatePageInCache(it) }
-                    .subscribeAndDispose()
+                .filter { it.bitmap == null && it.status == RenderingStatus.Wait }
+                .doOnNext { updatePageInCache(it.copy(status = RenderingStatus.Rendering)) }
+                .map { it.pageInfo.pageIndexOfTotal }
+                .doOnNext { Log.d(TAG, "start rendering ${it}") }
+                .flatMap { renderPagesProvider.providePage(it, SnRenderer.Quality.Normal) }
+                .doOnNext { updatePageInCache(it) }
+                .subscribeAndDispose()
         }
 
         cache.forEach {
@@ -185,9 +202,9 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
         val pages = renderPagesProvider.getPages()
         val p = cache.firstOrNull { it.pageInfo.pageIndexOfTotal == i }
         return p ?: RenderedPageData(
-                pages[i],
-                SnRenderer.Quality.Normal,
-                status = RenderingStatus.Wait
+            pages[i],
+            SnRenderer.Quality.Normal,
+            status = RenderingStatus.Wait
         )
     }
 
