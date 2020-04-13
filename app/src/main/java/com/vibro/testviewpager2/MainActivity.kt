@@ -1,33 +1,96 @@
 package com.vibro.testviewpager2
 
+import android.app.Activity
 import android.content.Context
-import android.content.res.AssetManager
-import androidx.appcompat.app.AppCompatActivity
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
+
 
 class MainActivity : AppCompatActivity() {
 
+    private val RC_GET_IMG: Int = 2222
     val DIRECTORY = "app_docs"
+    val file = "file"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        val files = listOf(
-            getPdf(this, "a.pdf"),
-            getPdf(this, "b.pdf"),
-            getPdf(this, "a.pdf"),
-            getPdf(this, "b.pdf"),
-            getPdf(this, "a.pdf"),
-            getPdf(this, "b.pdf")
-        )
-        editorView.show(files, this)
-            .compose(applySchedulersObservable())
-            .doFinally { "Need to not crash" }
+        val path = intent.getStringExtra(file)
+        if (path != null) {
+            editorView.show(listOf(File(path)), this)
+                .compose(applySchedulersObservable())
+                .subscribeAndDispose()
+        } else {
+            val files = listOf(
+                getPdf(this, "b.pdf")
+//            getPdf(this, "b.pdf")
+            )
+
+            editorView.show(files, this)
+                .compose(applySchedulersObservable())
+                .subscribeAndDispose()
+        }
+
+
+
+        btn_add_page.setOnClickListener {
+            openPicker()
+//            editorView.openPage()
+        }
+
+        btn_rearrange.setOnClickListener {
+            editorView.rearrangePage(0, 5).subscribeAndDispose()
+        }
+
+        btn_save.setOnClickListener {
+            editorView.save()
+                .subscribeAndDispose({ it ->
+                    val i = Intent(this, MainActivity::class.java).putExtra(file, it)
+                    startActivity(i)
+                })
+        }
+    }
+
+    fun openPicker() {
+        val photoPickerIntent = Intent(Intent.ACTION_PICK)
+        photoPickerIntent.type = "image/*"
+        startActivityForResult(photoPickerIntent, RC_GET_IMG)
+    }
+
+    fun removePage(pageIndex: Int) {
+        editorView.removePage(pageIndex)
             .subscribeAndDispose()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == Activity.RESULT_OK) {
+            try {
+                val imageUri: Uri? = data?.data
+                imageUri?.let {
+                    editorView.addPage(imageUri).subscribeAndDispose()
+                }
+            } catch (e: FileNotFoundException) {
+                e.printStackTrace()
+                Toast.makeText(this, "Something went wrong", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            Toast.makeText(this, "You haven't picked Image", Toast.LENGTH_LONG).show()
+        }
+    }
+
+
+    override fun onDestroy() {
+        editorView.close()
+        super.onDestroy()
     }
 
     fun getPdf(context: Context, filenameInAssets: String): File {
