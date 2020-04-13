@@ -81,11 +81,8 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
                 initMainRenderer(pdfFileData)
             }
             val currentPage = pdfRenderer.openPage(pageInfoToRender.pageInfo.pageIndex)
-            val pageAttributes = pageInfoToRender.pageInfo.pageAttributes
-            val bitmap = renderPage(
-                currentPage,
-                setPageAttributes(currentPage, pageInfoToRender, pageAttributes)
-            )
+            val pageAttributes = pageInfoToRender.pageInfo.pageAttributes ?: setPageAttributes(currentPage, pageInfoToRender)
+            val bitmap = renderPage(currentPage, pageAttributes)
 
             val pageInfo = pageInfoToRender.pageInfo.copy(pageAttributes = pageAttributes)
             val renderedData = RenderedPageData(pageInfo, pageInfoToRender.quality, bitmap, RenderingStatus.Complete)
@@ -184,7 +181,6 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
             val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
             postScale(initialScale, initialScale)
         }
-        val direction = pageInfo.pageAttributes?.rotateDirection
         val newAttr = FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), matrix = matrix)
         updatePage(pageInfo.copy(pageAttributes = newAttr))
         return newAttr

@@ -70,7 +70,8 @@ class PdfRenderingEngine(
                     }
             } else {
                 Observable.fromCallable {
-                    val bitmap = bitmapFromUri(page.pageChangesData.storedPage) ?: throw IllegalArgumentException()
+                    val transformer = RotatePageTransformer(page.pageAttributes as? FrameworkPageAttributes)
+                    val bitmap = bitmapFromUri(page.pageChangesData.storedPage, transformer) ?: throw IllegalArgumentException()
                     PageToSave(counter++, bitmap, bitmap.width, bitmap.height)
                 }
             }
@@ -222,7 +223,7 @@ class PdfRenderingEngine(
             attributes?.matrix?.preRotate(direction.angle)
             val updatePage = currentPage.copy(pageAttributes = attributes)
             val transformer = RotatePageTransformer(attributes)
-            val b = Glide.with(context).asBitmap().load(currentPage.pageChangesData?.uri).transform(transformer).submit().get()
+            val b = Glide.with(context).asBitmap().load(currentPage.pageChangesData?.storedPage).transform(transformer).submit().get()
             currentPages[index] = updatePage
             RenderedPageData(currentPages[index], SnRenderer.Quality.Normal, b, RenderingStatus.Complete)
         }
@@ -232,14 +233,14 @@ class PdfRenderingEngine(
         return Observable.fromCallable {
             val rotatedPage = snRenderer.rotatePage(index, direction)
             val renderedPageData = RenderedPageData(rotatedPage, SnRenderer.Quality.Normal, null, RenderingStatus.Wait)
-            pagesCache.updatePageInCache(renderedPageData)
+            cache.updatePageInCache(renderedPageData)
         }.flatMap { getPage(index) }
     }
 
     fun rotateAllPages(index: Int, direction: RotateDirection): Observable<RenderedPageData> {
         if (currentPages.isEmpty()) {
             return snRenderer.rotateAllPages(direction)
-                .map { pagesCache.clearCache() }
+                .map { cache.clearCache() }
                 .flatMap { getPage(index) }
         } else {
             // TODO(10.04.2020) Change it
@@ -251,7 +252,7 @@ class PdfRenderingEngine(
                     currentPages[it.pageIndexOfTotal] = it.copy(pageAttributes = attributes)
                 }
             }
-            return Observable.fromCallable(pagesCache::clearCache)
+            return Observable.fromCallable(cache::clearCache)
                 .flatMap { snRenderer.rotateAllPages(direction) }
                 .flatMap { getPage(index) }
         }
