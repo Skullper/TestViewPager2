@@ -14,6 +14,7 @@ import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
 import io.reactivex.subjects.PublishSubject
 import java.io.File
+import java.util.*
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -25,13 +26,15 @@ import kotlin.math.roundToInt
  * @param pageIndexOfTotal index of the page displayed on the screen. This page number refers to the index in the list of pages of all documents
  * which are rendering at that point
  */
-data class PageInfo(val pdfFileData: PdfFileData?,
-                    val pageIndex: Int,
-                    val pageIndexOfTotal: Int,
-                    val pageAttributes: PageAttributes? = null,
-                    val pageChangesData: PageChangesData? = null)
+data class PageInfo(
+    val pdfFileData: PdfFileData?,
+    val pageIndex: Int,
+    val pageIndexOfTotal: Int,
+    val pageAttributes: PageAttributes? = null,
+    val pageChangesData: PageChangesData? = null,
+    val id:Long = UUID.randomUUID().mostSignificantBits)
 
-data class PageChangesData(val uri: Uri)
+data class PageChangesData(val storedPage: Uri)
 
 data class PdfFileData(val file: File, val pageCount: Int)
 
@@ -84,18 +87,15 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
                 setPageAttributes(currentPage, pageInfoToRender, pageAttributes)
             )
 
-            val renderedData = RenderedPageData(
-                pageInfoToRender.pageInfo,
-                pageInfoToRender.quality,
-                bitmap,
-                RenderingStatus.Complete
-            )
+            val pageInfo = pageInfoToRender.pageInfo.copy(pageAttributes = pageAttributes)
+            val renderedData = RenderedPageData(pageInfo, pageInfoToRender.quality, bitmap, RenderingStatus.Complete)
             renderingResultPublisher.onNext(renderedData)
         }
     }
 
     fun updatePage(pageInfo: PageInfo) {
-        pages[pageInfo.pageIndexOfTotal] = pageInfo
+        val i = pages.indexOfFirst { it.id == pageInfo.id }
+        pages[i]
     }
 
     fun open(files: List<File>): List<PageInfo> {
@@ -106,23 +106,16 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         renderingThread.quitSafely()
     }
 
-    fun getPages(): List<PageInfo> = pages
-
-    fun getCurrentFile(): PdfFileData {
-        return currentFile
-    }
-
-    fun renderPage(index: Int, quality: Quality): Observable<RenderedPageData> {
-        val pageInfo = pages[index]
+    fun renderPage(pageInfo: PageInfo, quality: Quality): Observable<RenderedPageData> {
         val p = PageToRender(pageInfo, quality)
         val message = Message().apply { obj = p }
         renderingHandler.sendMessage(message)
-        return waitRender(pageInfo.pageIndexOfTotal, quality)
+        return waitRender(pageInfo.id, quality)
     }
 
-    fun waitRender(position: Int, quality: Quality): Observable<RenderedPageData> {
+    fun waitRender(id:Long, quality: Quality): Observable<RenderedPageData> {
         return renderingResultPublisher
-            .filter { it.pageInfo.pageIndexOfTotal == position }
+            .filter { it.pageInfo.id == id }
             .filter { it.quality == quality }
             .take(1)
     }
@@ -135,6 +128,8 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         updatePage(updatedPage)
         return updatedPage
     }
+
+    fun getCurrentFile() = currentFile
 
     fun rotateAllPages(direction: RotateDirection): Observable<List<Unit>> {
         // TODO(08.04.2020)
@@ -170,9 +165,7 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
                 val info = PageInfo(fileData, it, index)
                 pages.add(info)
             }
-            if (!::currentFile.isInitialized && !::pdfRenderer.isInitialized) initMainRenderer(
-                fileData
-            )
+            if (!::currentFile.isInitialized && !::pdfRenderer.isInitialized) initMainRenderer(fileData)
         }
         return pages
     }
@@ -182,6 +175,19 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         val parcelFileDescriptor =
             ParcelFileDescriptor.open(currentFile.file, ParcelFileDescriptor.MODE_READ_ONLY)
         pdfRenderer = PdfRenderer(parcelFileDescriptor)
+    }
+
+    private fun setPageAttributes(currentPage: PdfRenderer.Page, pageInfoToRender: PageToRender): PageAttributes? {
+        val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
+        val pageInfo = pageInfoToRender.pageInfo
+        val matrix = Matrix().apply {
+            val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
+            postScale(initialScale, initialScale)
+        }
+        val direction = pageInfo.pageAttributes?.rotateDirection
+        val newAttr = FrameworkPageAttributes(viewSize, Pair(currentPage.width, currentPage.height), matrix = matrix)
+        updatePage(pageInfo.copy(pageAttributes = newAttr))
+        return newAttr
     }
 
     private fun setPageAttributes(
@@ -239,11 +245,7 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
             Bitmap.createBitmap(viewWidth, viewHeight, Bitmap.Config.ARGB_8888)
         } else {
             val scale = viewWidth.toFloat() / pageHeight.toFloat()
-            Bitmap.createBitmap(
-                viewWidth,
-                (pageWidth.toFloat() * scale).toInt(),
-                Bitmap.Config.ARGB_8888
-            )
+            Bitmap.createBitmap(viewWidth, (pageWidth.toFloat() * scale).toInt(), Bitmap.Config.ARGB_8888)
         }
         currentPage.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
         currentPage.close()

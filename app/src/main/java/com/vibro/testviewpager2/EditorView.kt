@@ -47,15 +47,15 @@ class EditorView : FrameLayout, KoinComponent {
         if (files.isEmpty()) throw IllegalArgumentException("List with files is empty")
 
         return Observable.just(files)
-                .map {
-                    engine.open(it)
-                    Unit
-                }
-                .observeOn(AndroidSchedulers.mainThread())
-                .doFinally {
-                    val adapter = PageAdapter(fragmentActivity)
-                    viewPager.adapter = adapter
-                }
+            .map {
+                engine.open(it)
+                Unit
+            }
+            .observeOn(AndroidSchedulers.mainThread())
+            .doFinally {
+                val adapter = PageAdapter(fragmentActivity)
+                viewPager.adapter = adapter
+            }
     }
 
     fun close() {
@@ -64,7 +64,6 @@ class EditorView : FrameLayout, KoinComponent {
 
     private fun initView(context: Context, attrs: AttributeSet? = null, @AttrRes defStyleAttr: Int = 0, @StyleRes defStyleRes: Int = 0) {
         View.inflate(context, R.layout.view_editor, this)
-        viewPager?.setPageTransformer(MarginPageTransformer(50))
     }
 
     fun addPage(imageUri: Uri): Observable<Boolean> {
@@ -72,6 +71,19 @@ class EditorView : FrameLayout, KoinComponent {
             viewPager.adapter?.notifyDataSetChanged()
             setPage(engine.getPages().lastIndex)
         }
+
+    }
+
+    fun rearrangePage(indexFrom: Int, indexTo: Int): Observable<Unit> {
+        return engine.rearrangePage(indexFrom, indexTo)
+            .doOnNext { viewPager.adapter?.notifyDataSetChanged() }
+    }
+
+    fun removePage(index: Int): Observable<Unit> {
+        return engine.removePage(index)
+            .doOnNext {
+                viewPager.adapter?.notifyItemRemoved(index)
+            }
 
     }
 
@@ -83,6 +95,10 @@ class EditorView : FrameLayout, KoinComponent {
         viewPager?.adapter?.notifyItemRangeChanged(0, engine.getPages().lastIndex)
     }
 
+    fun save(): Observable<String> {
+        return engine.save()
+    }
+
     inner class PageAdapter(fragmentActivity: FragmentActivity) :
             FragmentStateAdapter(fragmentActivity) {
 
@@ -91,6 +107,11 @@ class EditorView : FrameLayout, KoinComponent {
         override fun createFragment(position: Int): Fragment {
             return PageFragment.newInstance(position)
         }
+
+        override fun getItemId(position: Int): Long {
+            return engine.getPages()[position].id
+        }
+
 
     }
 

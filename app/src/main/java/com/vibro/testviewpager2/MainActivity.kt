@@ -9,7 +9,6 @@ import android.os.Environment
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.android.synthetic.main.activity_main.*
-import org.koin.android.ext.android.inject
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
@@ -19,21 +18,44 @@ class MainActivity : AppCompatActivity() {
 
     private val RC_GET_IMG: Int = 2222
     val DIRECTORY = "app_docs"
+    val file = "file"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        val files = listOf(
-            getPdf(this, "b.pdf")
+        val path = intent.getStringExtra(file)
+        if (path != null) {
+            editorView.show(listOf(File(path)), this)
+                .compose(applySchedulersObservable())
+                .subscribeAndDispose()
+        } else {
+            val files = listOf(
+                getPdf(this, "b.pdf")
 //            getPdf(this, "b.pdf")
-        )
-        editorView.show(files, this)
-            .compose(applySchedulersObservable())
-            .subscribeAndDispose()
+            )
+
+            editorView.show(files, this)
+                .compose(applySchedulersObservable())
+                .subscribeAndDispose()
+        }
+
+
 
         btn_add_page.setOnClickListener {
             openPicker()
 //            editorView.openPage()
+        }
+
+        btn_rearrange.setOnClickListener {
+            editorView.rearrangePage(0, 5).subscribeAndDispose()
+        }
+
+        btn_save.setOnClickListener {
+            editorView.save()
+                .subscribeAndDispose({ it ->
+                    val i = Intent(this, MainActivity::class.java).putExtra(file, it)
+                    startActivity(i)
+                })
         }
     }
 
@@ -43,6 +65,10 @@ class MainActivity : AppCompatActivity() {
         startActivityForResult(photoPickerIntent, RC_GET_IMG)
     }
 
+    fun removePage(pageIndex: Int) {
+        editorView.removePage(pageIndex)
+            .subscribeAndDispose()
+    }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)

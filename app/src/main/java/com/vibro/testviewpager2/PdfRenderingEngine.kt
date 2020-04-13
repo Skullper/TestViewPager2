@@ -1,16 +1,26 @@
 package com.vibro.testviewpager2
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.util.Log
 import com.bumptech.glide.Glide
 import com.vibro.testviewpager2.utils.RotatePageTransformer
 import io.reactivex.Observable
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.lang.Exception
+import java.lang.IllegalArgumentException
 import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.math.floor
+
+data class PageToSave(val index:Int, val bitmap: Bitmap, val width:Int, val height:Int)
 
 class PdfRenderingEngine(
     private val context: Context,
@@ -19,34 +29,104 @@ class PdfRenderingEngine(
 
     private val TAG = this.javaClass.simpleName
 
-    private val pagesCache = PagesCache(this)
-
+    private val cache = PagesCache(this)
     private val originalPages: MutableList<PageInfo> = mutableListOf()
-    private val currentPages: MutableList<PageInfo> by lazy { ArrayList<PageInfo>(originalPages) }
+    private val currentPages: MutableList<PageInfo> by lazy {
+        hasChanges = true
+        ArrayList<PageInfo>(originalPages)
+    }
+
     private var hasChanges = false
+    private var multifiles = false
 
     fun open(files: List<File>): List<PageInfo> {
+        multifiles = files.size > 1
         return snRenderer.open(files).apply { originalPages.addAll(this) }
     }
 
     fun close() {
         snRenderer.close()
-        pagesCache.clearCache()
+        cache.clearCache()
     }
 
-    override fun getPages() = if (currentPages.isEmpty()) originalPages else currentPages
+    @Throws(IllegalArgumentException::class, OperationNotSupported::class, NoChangesFound::class, IOException::class)
+    fun save(): Observable<String> {
+        if (multifiles) return Observable.error(OperationNotSupported())
+        if (!hasChanges) return Observable.error(NoChangesFound())
+
+        var counter = 0
+        val pdfDocument = PdfDocument()
+
+        fun providePageToSave(page: PageInfo): Observable<PageToSave> {
+            return if (page.pageChangesData == null) {
+                snRenderer.renderPage(page, SnRenderer.Quality.Normal)
+                    .map {
+                        val isPortrait = it.pageInfo.pageAttributes?.isPortrait()?:true
+                        val pageSize = it.pageInfo.pageAttributes?.pageSize
+                        if (it.bitmap == null || pageSize == null) throw IllegalArgumentException()
+                        val width = if (isPortrait) pageSize.first else pageSize.second
+                        val height = if (isPortrait) pageSize.second else pageSize.first
+                        PageToSave(counter++, it.bitmap, width,height)
+                    }
+            } else {
+                Observable.fromCallable {
+                    val bitmap = bitmapFromUri(page.pageChangesData.storedPage) ?: throw IllegalArgumentException()
+                    PageToSave(counter++, bitmap, bitmap.width, bitmap.height)
+                }
+            }
+        }
+
+        fun writePageToPdfFile(pageToSave: PageToSave, pdfDocument: PdfDocument) {
+            val pageInfo = PdfDocument.PageInfo.Builder(pageToSave.width, pageToSave.height, pageToSave.index).create()
+            val page = pdfDocument.startPage(pageInfo)
+            page.canvas.drawBitmap(pageToSave.bitmap, null, Rect(0, 0, pageToSave.width, pageToSave.height), Paint())
+            pdfDocument.finishPage(page)
+        }
+
+        fun writeOnDisk(pdfDocument: PdfDocument): String {
+            val file = snRenderer.getCurrentFile().file
+            val path = file.absolutePath
+            file.delete()
+            val outStream = FileOutputStream(path)
+            pdfDocument.writeTo(outStream)
+            try {
+                outStream.close()
+            } catch (e: Exception) {
+                //do nothing
+            }
+            return path
+        }
+
+        return Observable.fromIterable(currentPages)
+            .flatMap { page -> providePageToSave(page) }
+            .map { pageToSave -> writePageToPdfFile(pageToSave, pdfDocument) }
+            .toList()
+            .toObservable()
+            .map { writeOnDisk(pdfDocument) }
+            .doFinally { pdfDocument.close() }
+    }
+
+    override fun getPages() = if (!hasChanges) originalPages else currentPages
 
     override fun providePage(index: Int, quality: SnRenderer.Quality): Observable<RenderedPageData> {
-        return if (!pageIsNewOrHasChanges(index)) {
-            snRenderer.renderPage(index, quality)
+        if (!pageIsNewOrHasChanges(index)) {
+            val pageInfo = getPages()[index]
+            return snRenderer.renderPage(pageInfo, quality)
         } else {
-            Observable.fromCallable {
+            return Observable.fromCallable {
                 val currentPage = currentPages[index]
                 val transformer = RotatePageTransformer(currentPage.pageAttributes as? FrameworkPageAttributes)
-                val b = Glide.with(context).asBitmap().load(currentPage.pageChangesData?.uri).transform(transformer).submit().get()
+                val b = bitmapFromUri(currentPage.pageChangesData?.storedPage, transformer)
                 RenderedPageData(currentPage, quality, b, RenderingStatus.Complete)
             }
         }
+    }
+
+    private fun bitmapFromUri(uri: Uri?, transformer: RotatePageTransformer): Bitmap? {
+        return Glide.with(context).asBitmap().load(uri)
+            .transform(transformer)
+            .submit()
+            .get()
     }
 
     fun addPage(uri: Uri): Observable<Boolean> {
@@ -54,30 +134,77 @@ class PdfRenderingEngine(
             val pageIndex = currentPages.lastIndex + 1
             val matrix = Matrix()
             val attributes = FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), RotateDirection.Clockwise(0F), matrix)
-            val pageInfo = PageInfo(null, pageIndex, pageIndex, attributes, PageChangesData(uri))
+            val pageInfo = PageInfo(null, -1, pageIndex, attributes, PageChangesData(uri))
             currentPages.add(pageInfo)
-            hasChanges = true
-            hasChanges
+            true
         }
     }
 
-    fun pageIsNewOrHasChanges(index: Int): Boolean {
-        return when {
-            currentPages.isEmpty() -> false
-            else -> currentPages[index].pageChangesData != null
+    fun rearrangePage(indexFrom: Int, indexTo: Int): Observable<Unit> {
+        return Observable.fromCallable {
+            val pageInfoToRearrange = currentPages.removeAt(indexFrom)
+            currentPages.add(indexTo, pageInfoToRearrange)
+            updateIndexes()
+            cache.clearCache()
         }
     }
 
-    fun getPage(index: Int): Observable<RenderedPageData> {
+    fun updatePages(newOrderOfElements:List<Long>): Observable<Unit> {
+        return Observable.fromCallable {
+            val pages = getPages()
+            if (newOrderOfElements.size > pages.size) Observable.error<Unit>(NewOrderCapacityMoreThanInitial())
+            if (newOrderOfElements.isNotEmpty()) {
+                currentPages.clear()
+                newOrderOfElements.forEach { id ->
+                    val page = pages.firstOrNull { it.id == id }
+                    page?.let { currentPages.add(page) }?: throw PageNotFound()
+                }
+                updateIndexes()
+                cache.clearCache()
+            }
+        }
+    }
+
+    private fun updateIndexes() {
+        val mapped = currentPages.mapIndexed { i, p -> p.copy(pageIndexOfTotal = i) }
+        currentPages.clear()
+        currentPages.addAll(mapped)
+    }
+
+    /**
+     * Return prev page index
+     */
+    fun removePage(index: Int): Observable<Unit> {
+        if (currentPages.size == 1) return Observable.error(LastPageCannotBeRemoved())
+        return Observable.fromCallable {
+            val pageInfo = currentPages.removeAt(index)
+            updateIndexes()
+            cache.remove(pageInfo)
+        }
+    }
+
+
+    fun getPage(index: Int, quality: SnRenderer.Quality = SnRenderer.Quality.Normal): Observable<RenderedPageData> {
         Log.d(TAG, "get page $index")
-        return pagesCache.getCachedPage(index)
+        return when (quality) {
+            SnRenderer.Quality.Normal -> provideViaCache(index)
+            else -> providePage(index,quality)
+        }
+    }
+
+    private fun provideViaCache(index: Int): Observable<RenderedPageData> {
+        return cache.getCachedPage(index)
             .flatMap { cachedPage: RenderedPageData ->
                 if (cachedPage.bitmap != null) {
                     Observable.just(cachedPage)
                 } else {
-                    snRenderer.waitRender(index, SnRenderer.Quality.Normal)
+                    snRenderer.waitRender(cachedPage.pageInfo.id, SnRenderer.Quality.Normal)
                 }
             }
+    }
+
+    private fun pageIsNewOrHasChanges(index: Int): Boolean {
+        return currentPages[index].pageChangesData != null
     }
 
     fun rotatePage(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
@@ -132,6 +259,7 @@ class PdfRenderingEngine(
 
 }
 
+
 class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
 
     private val TAG = this.javaClass.simpleName
@@ -158,7 +286,7 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
         cache.clear()
     }
 
-    private fun alignCache(index: Int) {
+    fun alignCache(index: Int) {
         val newCache = LinkedList<RenderedPageData>()
 
         fillRightSide(index, newCache)
@@ -208,9 +336,19 @@ class PagesCache(private val renderPagesProvider: RenderPagesProvider) {
         )
     }
 
+    fun remove(pageInfo: PageInfo) {
+        cache.find { it.pageInfo.id == pageInfo.id }?.let { cache.remove(it) }
+    }
+
 }
 
 interface RenderPagesProvider {
     fun getPages(): List<PageInfo>
     fun providePage(index: Int, quality: SnRenderer.Quality): Observable<RenderedPageData>
 }
+
+class LastPageCannotBeRemoved : RuntimeException()
+class OperationNotSupported : RuntimeException()
+class NoChangesFound : RuntimeException()
+class PageNotFound : RuntimeException()
+class NewOrderCapacityMoreThanInitial : RuntimeException()
