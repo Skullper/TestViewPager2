@@ -20,10 +20,10 @@ class RotatePageTransformer(private val pageAttributes: FrameworkPageAttributes?
     }
 
     override fun updateDiskCacheKey(messageDigest: MessageDigest) {
-        messageDigest.update("rotation:${pageAttributes?.rotateDirection?.getAngle()}".toByteArray())
+        messageDigest.update("rotation:${pageAttributes?.rotateDirection?.get()}".toByteArray())
     }
 
-    private fun getExifOrientationAngle(): Int = when (pageAttributes?.rotateDirection?.getAngle()) {
+    private fun getExifOrientationAngle(): Int = when (pageAttributes?.rotateDirection?.get()) {
         90F, -270F -> ExifInterface.ORIENTATION_ROTATE_90
         180F, -180F -> ExifInterface.ORIENTATION_ROTATE_180
         270F, -90F -> ExifInterface.ORIENTATION_ROTATE_270

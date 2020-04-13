@@ -45,7 +45,7 @@ class PageFragment : Fragment() {
             (activity as? MainActivity)?.removePage(pageIndex)
         }
         iv_page_fragment?.setOnClickListener {
-            renderer.rotatePage(pageIndex, RotationState.Clockwise(90F))
+            renderer.rotatePage(pageIndex, RotateDirection.Clockwise(90F))
                 .compose(applySchedulersObservable())
                 .subscribeAndDispose(
                     { page ->

@@ -11,20 +11,20 @@ private const val INITIAL_SCALE_FACTOR = 1.0F
 interface PageAttributes {
     val viewSize: Pair<Int, Int>
     val pageSize: Pair<Int, Int>
-    val rotateDirection: RotationState
+    val rotateDirection: RotateDirection
     fun isPortrait(): Boolean
 }
 
 data class FrameworkPageAttributes(override val viewSize: Pair<Int, Int>,
                                    override val pageSize: Pair<Int, Int>,
-                                   override val rotateDirection: RotationState = RotationState.Clockwise(),
+                                   override val rotateDirection: RotateDirection = RotateDirection.Clockwise(),
                                    val matrix: Matrix) : PageAttributes {
     override fun isPortrait() = matrix.isPortrait()
 }
 
 data class NativePageAttributes(override val viewSize: Pair<Int, Int>,
                                 override val pageSize: Pair<Int, Int>,
-                                override val rotateDirection: RotationState = RotationState.Clockwise(),
+                                override val rotateDirection: RotateDirection = RotateDirection.Clockwise(),
                                 val angle: Float) : PageAttributes{
     override fun isPortrait() = true
 }
@@ -45,7 +45,7 @@ class PageTransformer {
         val rotatePx = pageWidth.toFloat() / 2F
         val rotatePy = pageHeight.toFloat() / 2F
         //Performing rotation for passed angle around the calculated point into passed direction
-        matrix.preRotate(direction.getAngle(), rotatePx, rotatePy)
+        matrix.preRotate(direction.get(), rotatePx, rotatePy)
 
         //Retrieving current matrix state
         val scale = matrix.getScale()
