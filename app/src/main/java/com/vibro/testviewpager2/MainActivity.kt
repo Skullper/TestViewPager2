@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity() {
 
         btn_save.setOnClickListener {
             editorView.save()
+                .compose(applySchedulersObservable())
                 .subscribeAndDispose({ it ->
                     val i = Intent(this, MainActivity::class.java).putExtra(file, it)
                     startActivity(i)

@@ -76,7 +76,7 @@ class PageFragment : Fragment() {
             when (requestCode) {
                 PageCroppingActivity.RC_CROPPING -> {
                     data?.getStringExtra(PageCroppingActivity.EXTRA_IMAGE_URI)?.let { croppedImageUri ->
-                        renderer.updatePage(pageIndex, Uri.parse(croppedImageUri))
+                        renderer.updatePageUri(pageIndex, Uri.parse(croppedImageUri))
                             .compose(applySchedulersObservable())
                             .subscribeAndDispose(
                                 { renderedPageData -> iv_page_fragment?.setImageBitmap(renderedPageData.bitmap) },

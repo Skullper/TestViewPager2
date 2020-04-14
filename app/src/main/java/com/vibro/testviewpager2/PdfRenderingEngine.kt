@@ -153,10 +153,15 @@ class PdfRenderingEngine(
         }
     }
 
-    fun updatePage(index: Int, uri: Uri): Observable<RenderedPageData> {
+    fun updatePageUri(index: Int, uri: Uri): Observable<RenderedPageData> {
         return Observable.fromCallable {
             val page = getPages()[index]
-            val updatedPage = page.copy(pageChangesData = page.pageChangesData?.copy(storedPage = uri))
+            val pageChangesData = if (page.pageChangesData == null) {
+                PageChangesData(uri)
+            } else {
+                page.pageChangesData.copy(storedPage = uri)
+            }
+            val updatedPage = page.copy(pageChangesData = pageChangesData)
             updatePage(updatedPage)
             val transformer = RotatePageTransformer(updatedPage.pageAttributes)
             val b = Glide.with(context).asBitmap().load(updatedPage.pageChangesData?.storedPage).transform(transformer).submit().get()
