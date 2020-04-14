@@ -2,6 +2,7 @@ package com.vibro.testviewpager2
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -10,6 +11,7 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import com.vibro.testviewpager2.crop.CroppingDataHolder
 import com.vibro.testviewpager2.crop.PageCroppingActivity
+import com.vibro.testviewpager2.crop.getCroppingActivityIntent
 import kotlinx.android.synthetic.main.fragment_page.*
 import org.koin.android.ext.android.inject
 
@@ -45,17 +47,27 @@ class PageFragment : Fragment() {
             (activity as? MainActivity)?.removePage(pageIndex)
         }
         iv_page_fragment?.setOnClickListener {
-            renderer.rotateAllPages(pageIndex, RotateDirection.Clockwise(90F))
-                .compose(applySchedulersObservable())
-                .subscribeAndDispose(
-                    { page ->
-                        iv_page_fragment?.setImageBitmap(page.bitmap)
-                        (activity as? MainActivity)?.reloadEditorView()
-                    },
-                    { error -> Log.e("TAGA", "Rotating error: ${error.message}")}
-                )
-//            startActivityForResult(activity?.getCroppingActivityIntent(), PageCroppingActivity.RC_CROPPING)
+            cropPage()
         }
+    }
+
+    private fun cropPage() {
+        startActivityForResult(
+            activity?.getCroppingActivityIntent(),
+            PageCroppingActivity.RC_CROPPING
+        )
+    }
+
+    private fun rotateAllPages() {
+        renderer.rotateAllPages(pageIndex, RotateDirection.Clockwise(90F))
+            .compose(applySchedulersObservable())
+            .subscribeAndDispose(
+                { page ->
+                    iv_page_fragment?.setImageBitmap(page.bitmap)
+                    (activity as? MainActivity)?.reloadEditorView()
+                },
+                { error -> Log.e("TAGA", "Rotating error: ${error.message}") }
+            )
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -63,11 +75,20 @@ class PageFragment : Fragment() {
         if (resultCode == Activity.RESULT_OK) {
             when (requestCode) {
                 PageCroppingActivity.RC_CROPPING -> {
-//                    renderer.updatePage(pageIndex)
-//                        .subscribeAndDispose(
-//                            { renderedPageData -> iv_page_fragment?.setImageBitmap(renderedPageData.bitmap) },
-//                            { Log.e("CROPPING", "Cropping error: ${it.message}") }
-//                        )
+                    data?.getStringExtra(PageCroppingActivity.EXTRA_IMAGE_URI)?.let { croppedImageUri ->
+                        renderer.updatePage(pageIndex, Uri.parse(croppedImageUri))
+                            .compose(applySchedulersObservable())
+                            .subscribeAndDispose(
+                                { renderedPageData -> iv_page_fragment?.setImageBitmap(renderedPageData.bitmap) },
+                                { Log.e("CROPPING", "Cropping error: ${it.message}") },
+                                {
+                                    //Must be recycled only when cropped image successfully saved on disk
+                                    //otherwise crash will occur because CroppingDataHolder hold reference for real bitmap
+                                    CroppingDataHolder.bitmap?.recycle()
+                                    CroppingDataHolder.bitmap = null
+                                }
+                            )
+                    } ?: Log.e("TAGA", "Error occurred while getting uri")
                 }
             }
         }

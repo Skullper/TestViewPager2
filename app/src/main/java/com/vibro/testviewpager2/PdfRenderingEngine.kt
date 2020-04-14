@@ -153,6 +153,19 @@ class PdfRenderingEngine(
         }
     }
 
+    fun updatePage(index: Int, uri: Uri): Observable<RenderedPageData> {
+        return Observable.fromCallable {
+            val page = getPages()[index]
+            val updatedPage = page.copy(pageChangesData = page.pageChangesData?.copy(storedPage = uri))
+            updatePage(updatedPage)
+            val transformer = RotatePageTransformer(updatedPage.pageAttributes)
+            val b = Glide.with(context).asBitmap().load(updatedPage.pageChangesData?.storedPage).transform(transformer).submit().get()
+            RenderedPageData(updatedPage, SnRenderer.Quality.Normal, b, RenderingStatus.Complete)
+        }
+            .map { renderedData -> cache.updatePageInCache(renderedData) }
+            .flatMap { getPage(index) }
+    }
+
     fun updatePages(newOrderOfElements:List<Long>): Observable<Unit> {
         return Observable.fromCallable {
             val pages = getPages()
@@ -211,6 +224,7 @@ class PdfRenderingEngine(
         return currentPages[index].pageChangesData != null
     }
 
+    /*--------------------------ROTATE PAGE--------------------------------*/
     fun rotatePage(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
         return if (!pageIsNewOrHasChanges(index)) {
             rotatePageFromRenderer(index, direction)
@@ -263,6 +277,13 @@ class PdfRenderingEngine(
         updatePage(rotatedPage)
         return rotatedPage
     }
+    /*--------------------------ROTATE PAGE--------------------------------*/
+
+    /*--------------------------CROP PAGE--------------------------------*/
+    fun cropPage(index: Int) {
+
+    }
+    /*--------------------------CROP PAGE--------------------------------*/
 
 }
 
