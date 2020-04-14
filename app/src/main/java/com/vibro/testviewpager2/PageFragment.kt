@@ -37,9 +37,9 @@ class PageFragment : Fragment() {
         renderer.getPage(pageIndex)
             .compose(applySchedulersObservable())
             .subscribeAndDispose(
-                { bitmap ->
-                    renderedPageData = bitmap
-                    iv_page_fragment?.setImageBitmap(bitmap.bitmap)
+                { pageData ->
+                    renderedPageData = pageData
+                    iv_page_fragment?.setImageBitmap(pageData.bitmap)
                     progressBar?.visibility = View.GONE
                 },
                 { error -> Log.e("TAGA", "Error: ${error.message}") }

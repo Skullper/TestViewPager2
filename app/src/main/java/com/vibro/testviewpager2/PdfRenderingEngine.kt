@@ -269,7 +269,7 @@ class PdfRenderingEngine(
         return Observable.fromIterable(getPages())
                 .map { page ->
                     val oldAngle = page.pageAttributes?.rotateDirection?.get() ?: 0F
-                    rotatePage(page, direction.rotateAndForget(oldAngle))
+                    rotatePage(page, direction.updateAngle(oldAngle))
                 }
                 .toList()
                 .toObservable()

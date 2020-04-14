@@ -53,7 +53,6 @@ sealed class RenderingStatus {
     object Complete : RenderingStatus()
 }
 
-// TODO(13.04.2020) Refactor this!!!
 abstract class RotateDirection(angle: Float) {
 
     protected var angle: Float = abs(angle)
@@ -61,7 +60,7 @@ abstract class RotateDirection(angle: Float) {
             field = if (value >= 360F) 0F else value
         }
     abstract fun get(): Float
-    abstract fun rotateAndForget(angle: Float): RotateDirection
+    abstract fun updateAngle(angle: Float): RotateDirection
 
     fun rotate(angle: Float): RotateDirection {
         this.angle += abs(angle)
@@ -70,17 +69,15 @@ abstract class RotateDirection(angle: Float) {
 
     class Clockwise(angle: Float = 0F): RotateDirection(angle) {
         override fun get(): Float = angle
-        override fun rotateAndForget(angle: Float): RotateDirection {
-            val newAngle = this.angle + angle
-            return Clockwise(if (newAngle >= 360F) 0F else newAngle)
+        override fun updateAngle(angle: Float): RotateDirection {
+            return Clockwise(this.angle).rotate(angle)
         }
     }
 
     class CounterClockwise(angle: Float = 0F) : RotateDirection(angle) {
         override fun get(): Float = -angle
-        override fun rotateAndForget(angle: Float): RotateDirection {
-            val newAngle = this.angle + abs(angle)
-            return CounterClockwise(if (newAngle >= 360F) 0F else newAngle)
+        override fun updateAngle(angle: Float): RotateDirection {
+            return CounterClockwise(this.angle).rotate(angle)
         }
     }
 }
@@ -92,9 +89,6 @@ class SnRenderer(private val pageTransformer: PageTransformer,
 
     private lateinit var pdfRenderer: PdfRenderer
     private lateinit var currentFile: PdfFileData
-
-    private val screenHeight = Resources.getSystem().displayMetrics.heightPixels
-    private val screenWidth = Resources.getSystem().displayMetrics.widthPixels
 
     private val renderingResultPublisher = PublishSubject.create<RenderedPageData>()
     private val renderingThread = HandlerThread("pdf_rendering").apply { this.start() }
