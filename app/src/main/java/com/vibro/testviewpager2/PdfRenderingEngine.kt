@@ -9,6 +9,7 @@ import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.util.Log
 import com.bumptech.glide.Glide
+import com.vibro.testviewpager2.utils.PageViewSizeCalculator
 import com.vibro.testviewpager2.utils.RotatePageTransformer
 import io.reactivex.Observable
 import java.io.File
@@ -22,7 +23,8 @@ data class PageToSave(val index:Int, val bitmap: Bitmap, val width:Int, val heig
 
 class PdfRenderingEngine(
     private val context: Context,
-    private val snRenderer: SnRenderer
+    private val snRenderer: SnRenderer,
+    private val pageViewSizeCalculator: PageViewSizeCalculator
 ) : RenderPagesProvider {
 
     private val TAG = this.javaClass.simpleName
@@ -153,6 +155,27 @@ class PdfRenderingEngine(
         }
     }
 
+    fun updatePageUri(index: Int, uri: Uri): Observable<RenderedPageData> {
+        return Observable.fromCallable {
+            val page = getPages()[index]
+            val pageChangesData = if (page.pageChangesData == null) {
+                PageChangesData(uri)
+            } else {
+                page.pageChangesData.copy(storedPage = uri)
+            }
+            val updatedPage = page.copy(pageChangesData = pageChangesData)
+            updatePage(updatedPage)
+            val transformer = RotatePageTransformer(updatedPage.pageAttributes)
+            val bitmap = Glide.with(context).asBitmap().load(updatedPage.pageChangesData?.storedPage).transform(transformer).submit().get()
+            val viewSize = pageViewSizeCalculator.calculatePageSize(bitmap, SnRenderer.Quality.Normal.scaleFactor)
+            val scaledBitmap = Bitmap.createScaledBitmap(bitmap, viewSize.first, viewSize.second, true)
+            bitmap.recycle()
+            RenderedPageData(updatedPage, SnRenderer.Quality.Normal, scaledBitmap, RenderingStatus.Complete)
+        }
+            .map { renderedData -> cache.updatePageInCache(renderedData) }
+            .flatMap { getPage(index) }
+    }
+
     fun updatePages(newOrderOfElements:List<Long>): Observable<Unit> {
         return Observable.fromCallable {
             val pages = getPages()
@@ -211,6 +234,7 @@ class PdfRenderingEngine(
         return currentPages[index].pageChangesData != null
     }
 
+    /*--------------------------ROTATE PAGE--------------------------------*/
     fun rotatePage(index: Int, direction: RotateDirection = RotateDirection.Clockwise()): Observable<RenderedPageData> {
         return if (!pageIsNewOrHasChanges(index)) {
             rotatePageFromRenderer(index, direction)
@@ -245,7 +269,7 @@ class PdfRenderingEngine(
         return Observable.fromIterable(getPages())
                 .map { page ->
                     val oldAngle = page.pageAttributes?.rotateDirection?.get() ?: 0F
-                    rotatePage(page, direction.rotateAndForget(oldAngle))
+                    rotatePage(page, direction.updateAngle(oldAngle))
                 }
                 .toList()
                 .toObservable()
@@ -263,6 +287,7 @@ class PdfRenderingEngine(
         updatePage(rotatedPage)
         return rotatedPage
     }
+    /*--------------------------ROTATE PAGE--------------------------------*/
 
 }
 

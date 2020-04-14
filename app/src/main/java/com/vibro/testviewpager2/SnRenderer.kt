@@ -7,6 +7,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.*
 import android.util.Log
+import com.vibro.testviewpager2.utils.PageViewSizeCalculator
 import io.reactivex.Observable
 import io.reactivex.Single
 import io.reactivex.android.schedulers.AndroidSchedulers
@@ -16,8 +17,6 @@ import io.reactivex.subjects.PublishSubject
 import java.io.File
 import java.util.*
 import kotlin.math.abs
-import kotlin.math.min
-import kotlin.math.roundToInt
 
 /**
  * Contains information about pdf page
@@ -54,7 +53,6 @@ sealed class RenderingStatus {
     object Complete : RenderingStatus()
 }
 
-// TODO(13.04.2020) Refactor this!!!
 abstract class RotateDirection(angle: Float) {
 
     protected var angle: Float = abs(angle)
@@ -62,7 +60,7 @@ abstract class RotateDirection(angle: Float) {
             field = if (value >= 360F) 0F else value
         }
     abstract fun get(): Float
-    abstract fun rotateAndForget(angle: Float): RotateDirection
+    abstract fun updateAngle(angle: Float): RotateDirection
 
     fun rotate(angle: Float): RotateDirection {
         this.angle += abs(angle)
@@ -71,30 +69,26 @@ abstract class RotateDirection(angle: Float) {
 
     class Clockwise(angle: Float = 0F): RotateDirection(angle) {
         override fun get(): Float = angle
-        override fun rotateAndForget(angle: Float): RotateDirection {
-            val newAngle = this.angle + angle
-            return Clockwise(if (newAngle >= 360F) 0F else newAngle)
+        override fun updateAngle(angle: Float): RotateDirection {
+            return Clockwise(this.angle).rotate(angle)
         }
     }
 
     class CounterClockwise(angle: Float = 0F) : RotateDirection(angle) {
         override fun get(): Float = -angle
-        override fun rotateAndForget(angle: Float): RotateDirection {
-            val newAngle = this.angle + abs(angle)
-            return CounterClockwise(if (newAngle >= 360F) 0F else newAngle)
+        override fun updateAngle(angle: Float): RotateDirection {
+            return CounterClockwise(this.angle).rotate(angle)
         }
     }
 }
 
-class SnRenderer(private val pageTransformer: PageTransformer) {
+class SnRenderer(private val pageTransformer: PageTransformer,
+                 private val pageViewSizeCalculator: PageViewSizeCalculator) {
 
     private val TAG = this.javaClass.simpleName
 
     private lateinit var pdfRenderer: PdfRenderer
     private lateinit var currentFile: PdfFileData
-
-    private val screenHeight = Resources.getSystem().displayMetrics.heightPixels
-    private val screenWidth = Resources.getSystem().displayMetrics.widthPixels
 
     private val renderingResultPublisher = PublishSubject.create<RenderedPageData>()
     private val renderingThread = HandlerThread("pdf_rendering").apply { this.start() }
@@ -173,7 +167,7 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
     private fun setAttributesIfNeeded(currentPage: PdfRenderer.Page, pageInfoToRender: PageToRender): PageAttributes? {
         val attrs = pageInfoToRender.pageInfo.pageAttributes
 
-        val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
+        val viewSize = pageViewSizeCalculator.calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
         val pageSize = Pair(currentPage.width, currentPage.height)
         val matrix = Matrix().apply {
             val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
@@ -209,34 +203,6 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
         currentPage.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
         currentPage.close()
         return bitmap
-    }
-
-    private fun calculatePageSize(currentPage: Any, qualityFactor: Float): Pair<Int, Int> {
-        val (pageWidth, pageHeight) = getPageDimensions(currentPage)
-
-        val screenHeight = screenHeight
-        val screenWidth = screenWidth
-        val scaleToFitHeight = screenHeight.toFloat() / pageHeight
-        val scaleToFitWidth = screenWidth.toFloat() / pageWidth
-
-        val scale = min(scaleToFitWidth, scaleToFitHeight)
-        val newWidth = ((scale * qualityFactor) * pageWidth).roundToInt()
-        val newHeight = ((scale * qualityFactor) * pageHeight).roundToInt()
-
-        return Pair(newWidth, newHeight)
-    }
-
-    private fun getPageDimensions(page: Any): Pair<Int, Int> {
-        var pageWidth = 0
-        var pageHeight = 0
-        if (page is PdfRenderer.Page) {
-            pageWidth = page.width
-            pageHeight = page.height
-        } else if (page is Bitmap) {
-            pageWidth = page.width
-            pageHeight = page.height
-        }
-        return Pair(pageWidth, pageHeight)
     }
 
     sealed class Quality(val scaleFactor: Float) {
