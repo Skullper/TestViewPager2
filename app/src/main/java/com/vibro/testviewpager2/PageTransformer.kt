@@ -14,7 +14,7 @@ interface PageAttributes {
     val rotateDirection: RotateDirection
 
     fun isPortrait(): Boolean
-    fun notRenderedYet(): Boolean
+    fun isNotRenderedYet(): Boolean
 }
 
 data class FrameworkPageAttributes(override val viewSize: Pair<Int, Int>,
@@ -24,7 +24,7 @@ data class FrameworkPageAttributes(override val viewSize: Pair<Int, Int>,
 
     override fun isPortrait() = matrix.isPortrait()
 
-    override fun notRenderedYet(): Boolean {
+    override fun isNotRenderedYet(): Boolean {
         return viewSize.first == 0 && pageSize.first == 0
     }
 }
@@ -36,7 +36,7 @@ data class NativePageAttributes(override val viewSize: Pair<Int, Int>,
 
     override fun isPortrait() = true
 
-    override fun notRenderedYet(): Boolean {
+    override fun isNotRenderedYet(): Boolean {
         return viewSize.first == 0 && pageSize.first == 0
     }
 }

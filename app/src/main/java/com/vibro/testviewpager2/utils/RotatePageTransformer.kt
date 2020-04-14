@@ -6,12 +6,13 @@ import com.bumptech.glide.load.engine.bitmap_recycle.BitmapPool
 import com.bumptech.glide.load.resource.bitmap.BitmapTransformation
 import com.bumptech.glide.load.resource.bitmap.TransformationUtils
 import com.vibro.testviewpager2.FrameworkPageAttributes
+import com.vibro.testviewpager2.PageAttributes
 import java.security.MessageDigest
 
 /**
  * Rotates bitmap according to the matrix stored in [pageAttributes]
  */
-class RotatePageTransformer(private val pageAttributes: FrameworkPageAttributes?) : BitmapTransformation() {
+class RotatePageTransformer(private val pageAttributes: PageAttributes?) : BitmapTransformation() {
 
     override fun transform(pool: BitmapPool, toTransform: Bitmap, outWidth: Int, outHeight: Int): Bitmap {
         if (pageAttributes == null) return toTransform //return original bitmap

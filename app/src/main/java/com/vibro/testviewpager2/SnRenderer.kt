@@ -140,16 +140,6 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
             .take(1)
     }
 
-    // TODO(13.04.2020) This method should be extracted to engine
-    fun rotatePage(page: PageInfo, direction: RotateDirection = RotateDirection.Clockwise()): PageInfo {
-        val attrs = if (page.pageAttributes == null || page.pageAttributes !is FrameworkPageAttributes) {
-            FrameworkPageAttributes(Pair(0, 0), Pair(0, 0), direction, Matrix())
-        } else {
-            page.pageAttributes.copy(rotateDirection = direction)
-        }
-        return page.copy(pageAttributes = attrs)
-    }
-
     fun getCurrentFile() = currentFile
 
     private fun initPages(files: List<File>): List<PageInfo> {
@@ -182,21 +172,16 @@ class SnRenderer(private val pageTransformer: PageTransformer) {
 
     private fun setAttributesIfNeeded(currentPage: PdfRenderer.Page, pageInfoToRender: PageToRender): PageAttributes? {
         val attrs = pageInfoToRender.pageInfo.pageAttributes
+
+        val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
+        val pageSize = Pair(currentPage.width, currentPage.height)
+        val matrix = Matrix().apply {
+            val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
+            postScale(initialScale, initialScale)
+        }
         return if (attrs == null || attrs !is FrameworkPageAttributes) {
-            val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
-            val pageSize = Pair(currentPage.width, currentPage.height)
-            val matrix = Matrix().apply {
-                val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
-                postScale(initialScale, initialScale)
-            }
             FrameworkPageAttributes(viewSize, pageSize, matrix = matrix)
-        } else if (attrs.notRenderedYet()) {
-            val viewSize = calculatePageSize(currentPage, pageInfoToRender.quality.scaleFactor)
-            val pageSize = Pair(currentPage.width, currentPage.height)
-            val matrix = Matrix().apply {
-                val initialScale = viewSize.first.toFloat() / currentPage.width.toFloat()
-                postScale(initialScale, initialScale)
-            }
+        } else if (attrs.isNotRenderedYet()) {
             attrs.copy(viewSize, pageSize, matrix = matrix)
         } else {
             attrs
