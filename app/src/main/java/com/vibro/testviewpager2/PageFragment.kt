@@ -28,6 +28,7 @@ class PageFragment : Fragment() {
     }
 
     private var pageIndex: Int = 0
+    private var renderedPageData: RenderedPageData? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -37,7 +38,7 @@ class PageFragment : Fragment() {
             .compose(applySchedulersObservable())
             .subscribeAndDispose(
                 { bitmap ->
-                    CroppingDataHolder.bitmap = bitmap.bitmap
+                    renderedPageData = bitmap
                     iv_page_fragment?.setImageBitmap(bitmap.bitmap)
                     progressBar?.visibility = View.GONE
                 },
@@ -52,8 +53,10 @@ class PageFragment : Fragment() {
     }
 
     private fun cropPage() {
+        CroppingDataHolder.bitmap = renderedPageData?.bitmap
+        val intent = activity?.getCroppingActivityIntent()
         startActivityForResult(
-            activity?.getCroppingActivityIntent(),
+            intent,
             PageCroppingActivity.RC_CROPPING
         )
     }
@@ -79,7 +82,10 @@ class PageFragment : Fragment() {
                         renderer.updatePageUri(pageIndex, Uri.parse(croppedImageUri))
                             .compose(applySchedulersObservable())
                             .subscribeAndDispose(
-                                { renderedPageData -> iv_page_fragment?.setImageBitmap(renderedPageData.bitmap) },
+                                { renderedPageData ->
+                                    this.renderedPageData = renderedPageData
+                                    iv_page_fragment?.setImageBitmap(renderedPageData.bitmap)
+                                },
                                 { Log.e("CROPPING", "Cropping error: ${it.message}") },
                                 {
                                     //Must be recycled only when cropped image successfully saved on disk
